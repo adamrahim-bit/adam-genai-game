@@ -130,7 +130,7 @@ function hexToRgb(hex) {
 // displayScores persists and vehicles continue from their last position.
 // Pass ready=false to hold animation until you're ready to trigger it.
 // Pass totalRounds so TRACK_MAX scales to exactly fit the game length.
-export default function RaceTrack({ teams, teamResults, ready = true, totalRounds }) {
+export default function RaceTrack({ teams, teamResults, ready = true, totalRounds, myTeamId, players = {} }) {
   // Max points a team can earn = totalRounds × 250 (max per round as guesser)
   const TRACK_MAX = totalRounds ? totalRounds * 250 : BASE_TRACK_MAX
   // Lock team order on first render — rows NEVER re-sort, only rank badge updates
@@ -239,10 +239,18 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
 
           return (
             <div key={tid}>
-              <div className="flex items-center gap-1.5 mb-1.5">
+              <div className="flex items-center gap-1.5 mb-1">
                 <span className="text-white/25 text-[10px] font-bold w-3">{rank}</span>
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team?.color }} />
-                <span className="text-white/60 text-xs font-semibold flex-1 truncate">{team?.name}</span>
+                <span className="text-xs font-bold flex-1 truncate" style={{ color: tid === myTeamId ? team?.color : 'rgba(255,255,255,0.6)' }}>
+                  {team?.name}
+                </span>
+                {tid === myTeamId && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full"
+                    style={{ background: `rgba(${hexToRgb(team?.color)}, 0.2)`, color: team?.color, border: `1px solid rgba(${hexToRgb(team?.color)}, 0.4)` }}>
+                    YOU
+                  </span>
+                )}
                 {result?.pts > 0 && (
                   <span className="text-xs font-black animate-bounce-in" style={{ color: team?.color }}>
                     +{result.pts}
@@ -251,6 +259,19 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
                 <span className="text-white font-black text-sm tabular-nums w-12 text-right">
                   {teams[tid]?.score || 0}
                 </span>
+              </div>
+              {/* Member names */}
+              <div className="flex gap-1.5 flex-wrap mb-1.5">
+                {(team?.memberIds || []).map((pid) => {
+                  const p = players[pid]
+                  if (!p) return null
+                  return (
+                    <span key={pid} className="text-[9px] px-1.5 py-0.5 rounded-full"
+                      style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      {p.name}
+                    </span>
+                  )
+                })}
               </div>
 
               <div className="relative rounded-xl overflow-visible"

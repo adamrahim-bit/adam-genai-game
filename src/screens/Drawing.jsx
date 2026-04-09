@@ -1143,8 +1143,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <>
                 <div className="text-5xl">👀</div>
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Get ready</p>
-                <p className="text-white font-black text-2xl leading-tight">Your team is drawing</p>
-                <p className="text-white/40 text-sm">Use <span className="font-bold text-white">💣 Hex</span> and <span className="font-bold text-white">🔒 Lock</span> to sabotage opponents</p>
+                <p className="text-white font-black text-2xl leading-tight">{players[drawerId]?.name} is drawing</p>
+                <p className="text-white/40 text-sm">Use <span className="font-bold text-white">💣 Sabotage</span> to slow down guessing teams</p>
               </>
             ) : (
               <>
@@ -1152,7 +1152,10 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Get ready to guess</p>
                 <p className="text-white font-black text-2xl leading-tight">Drawing begins soon</p>
                 <p className="text-white/40 text-sm">
-                  <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span> is studying their word
+                  <span className="font-bold text-white/70">{drawer?.name}</span>
+                  <span> · </span>
+                  <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span>
+                  <span> is studying their word</span>
                 </p>
                 <p className="text-white/20 text-xs">Anyone on your team can guess</p>
               </>
@@ -1198,7 +1201,10 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 <p className="text-white font-black text-2xl leading-tight">What's being drawn?</p>
                 <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
                   <p className="text-white/60 text-sm">
-                    <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span> is drawing
+                    <span className="font-bold text-white">{drawer?.name}</span>
+                    <span className="text-white/40"> · </span>
+                    <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span>
+                    <span className="text-white/60"> is drawing</span>
                   </p>
                   <p className="text-white/30 text-xs mt-1">Everyone on your team can guess — tap letters or type the full word</p>
                 </div>
@@ -1208,7 +1214,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <>
                 <div className="text-5xl mb-2">👀</div>
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">You're on the drawing team</p>
-                <p className="text-white font-black text-2xl leading-tight">Cheer your drawer on!</p>
+                <p className="text-white font-black text-2xl leading-tight">{players[drawerId]?.name} is drawing</p>
                 <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
                   <p className="text-white/50 text-sm">Use <span className="font-bold text-white">💣 Sabotage</span> to slow down guessing teams</p>
                 </div>

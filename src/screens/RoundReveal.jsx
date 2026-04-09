@@ -344,7 +344,7 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
 
           {/* Race track — always in DOM so displayScores survives until overlay opens */}
           <div className="flex-1 overflow-y-auto px-4 pb-4 relative">
-            <RaceTrack teams={teams} teamResults={teamResults} ready={raceReady} totalRounds={totalRounds} />
+            <RaceTrack teams={teams} teamResults={teamResults} ready={raceReady} totalRounds={totalRounds} myTeamId={myTeamId} players={gameState?.players || {}} />
           </div>
 
           {/* No-score splash prompt — appears over the track when nobody scored */}
