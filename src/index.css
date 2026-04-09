@@ -29,8 +29,7 @@ body {
 /* ─── Base background ─── */
 .game-bg {
   background: #050e08;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100dvh;
   position: relative;
 }
 

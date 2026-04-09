@@ -360,7 +360,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     : POWER_CARDS
 
   return (
-    <div className="relative flex flex-col" style={{ height: '100%', overflow: 'hidden' }}>
+    <div className="flex flex-col" style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '1200px', height: '100dvh', overflow: 'hidden' }}>
 
       {/* Top bar */}
       <div
