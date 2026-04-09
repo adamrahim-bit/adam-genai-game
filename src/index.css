@@ -16,17 +16,11 @@ input:-webkit-autofill:active {
   caret-color: white;
 }
 
-html {
-  height: 100%;
-  overflow: hidden;
-}
-
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: #050e08;
   color: white;
-  height: 100%;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -35,7 +29,8 @@ body {
 /* ─── Base background ─── */
 .game-bg {
   background: #050e08;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   position: relative;
 }
 
