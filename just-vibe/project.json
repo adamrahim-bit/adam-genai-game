@@ -1,0 +1,15 @@
+{
+  "id": "project-1775185728176",
+  "name": "Gen AI",
+  "description": "Imported project from /Users/adam.rahim/vibe-projects/GenAI",
+  "template": "webApp",
+  "deviceView": {
+    "deviceType": "mobile",
+    "isLandscape": false,
+    "customWidth": 375,
+    "customHeight": 667
+  },
+  "createdAt": "2026-04-03T03:08:47.651Z",
+  "updatedAt": "2026-04-03T03:10:05.632Z",
+  "projectType": "just-vibe-project"
+}

@@ -1,0 +1,252 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 40px #0d1f14 inset !important;
+  -webkit-text-fill-color: white !important;
+  caret-color: white;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #050e08;
+  color: white;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Base background ─── */
+.game-bg {
+  background: #050e08;
+  min-height: 100dvh;
+  position: relative;
+}
+
+/* Subtle dot grid texture */
+.game-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 177, 79, 0.06) 1px, transparent 0);
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.game-bg > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Ambient orbs (added via JS in App.jsx) ─── */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(1px);
+}
+
+.orb-1 {
+  width: 560px;
+  height: 560px;
+  top: -180px;
+  right: -180px;
+  background: radial-gradient(circle, rgba(0, 177, 79, 0.13) 0%, transparent 65%);
+  animation: orbFloat 9s ease-in-out infinite;
+}
+
+.orb-2 {
+  width: 440px;
+  height: 440px;
+  bottom: -120px;
+  left: -120px;
+  background: radial-gradient(circle, rgba(0, 177, 79, 0.07) 0%, transparent 65%);
+  animation: orbFloat 12s ease-in-out infinite reverse;
+}
+
+.orb-3 {
+  width: 300px;
+  height: 300px;
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(0, 177, 79, 0.04) 0%, transparent 70%);
+  animation: orbFloat 15s ease-in-out infinite 3s;
+}
+
+@keyframes orbFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%       { transform: translateY(-30px) scale(1.05); }
+}
+
+/* ─── Glassmorphism cards ─── */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-green {
+  background: rgba(0, 177, 79, 0.07);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 177, 79, 0.18);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.card {
+  @apply glass rounded-2xl p-5 animate-fade-in;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.card-highlight {
+  background: rgba(0, 177, 79, 0.08);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 177, 79, 0.22);
+  border-radius: 1rem;
+  box-shadow: 0 4px 24px rgba(0, 177, 79, 0.12), inset 0 1px 0 rgba(0,177,79,0.1);
+}
+
+/* ─── Glow helpers ─── */
+.glow-grab  { box-shadow: 0 0 32px rgba(0, 177, 79, 0.45); }
+.glow-green { box-shadow: 0 0 32px rgba(0, 177, 79, 0.45); }
+.glow-red   { box-shadow: 0 0 32px rgba(239, 68, 68, 0.4); }
+
+/* ─── Primary button ─── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #00B14F 0%, #009940 100%);
+  color: white;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 20px rgba(0, 177, 79, 0.35);
+  letter-spacing: -0.01em;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00C957 0%, #00B14F 100%);
+  box-shadow: 0 6px 28px rgba(0, 177, 79, 0.55);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.97) translateY(0);
+  box-shadow: 0 2px 12px rgba(0, 177, 79, 0.35);
+}
+
+.btn-primary:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* ─── Secondary button ─── */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* ─── Input fields ─── */
+.input-field {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  color: white;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+  outline: none;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.input-field::placeholder { color: rgba(255, 255, 255, 0.25); }
+
+.input-field:focus {
+  border-color: rgba(0, 177, 79, 0.6);
+  box-shadow: 0 0 0 3px rgba(0, 177, 79, 0.12);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* ─── Animations ─── */
+.timer-danger {
+  animation: timerDanger 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes timerDanger {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0.75; transform: scale(1.04); }
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,177,79,0.3); border-radius: 2px; }
+
+/* ─── Tailwind custom anims ─── */
+@layer utilities {
+  .animate-fade-in   { animation: fadeIn 0.35s ease-out both; }
+  .animate-slide-up  { animation: slideUp 0.4s ease-out both; }
+  .animate-bounce-in { animation: bounceIn 0.5s ease-out both; }
+  .animate-pop       { animation: pop 0.28s ease-out both; }
+}
+
+@keyframes shimmer  { to { background-position: 200% center; } }
+@keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp  { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes bounceIn {
+  0%   { transform: scale(0.55); opacity: 0; }
+  60%  { transform: scale(1.08); }
+  80%  { transform: scale(0.96); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes pop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
