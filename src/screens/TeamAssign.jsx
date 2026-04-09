@@ -1,13 +1,30 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { db } from '../firebase'
 import { ref, update } from 'firebase/database'
 import { getRandomWordIndex } from '../data/wordList'
 import PlayerAvatar from '../components/PlayerAvatar'
+import { assignTeams } from '../utils'
 
 export default function TeamAssign({ playerId, roomCode, gameState, isHost, myTeamId, myTeam }) {
   const teams = gameState?.teams || {}
   const players = gameState?.players || {}
   const teamIds = Object.keys(teams)
+
+  // Non-host players available for team assignment
+  const hostId = gameState?.hostId
+  const assignablePlayers = Object.keys(players).filter((id) => id !== hostId)
+  const currentTeamCount = teamIds.length
+  const maxTeams = Math.min(8, assignablePlayers.length)  // at least 1 player per team
+  const minTeams = Math.min(2, assignablePlayers.length)
+  const [selectedTeamCount, setSelectedTeamCount] = useState(currentTeamCount)
+
+  // Possible team counts: 2 up to maxTeams
+  const teamCountOptions = Array.from({ length: maxTeams - minTeams + 1 }, (_, i) => minTeams + i)
+
+  const handleReshuffle = async () => {
+    const newTeams = assignTeams(assignablePlayers, selectedTeamCount)
+    await update(ref(db, `rooms/${roomCode}`), { teams: newTeams })
+  }
 
   const handleStartGame = async () => {
     const drawingTeamId = teamIds[0]
@@ -87,7 +104,7 @@ export default function TeamAssign({ playerId, roomCode, gameState, isHost, myTe
                       className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full"
                       style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}
                     >
-                      You
+                      My Team
                     </span>
                   )}
                 </div>
@@ -113,21 +130,53 @@ export default function TeamAssign({ playerId, roomCode, gameState, isHost, myTe
           })}
         </div>
 
-        {/* How it works for teams */}
+        {/* How it works */}
         <div
           className="rounded-xl px-4 py-3 mb-6 text-sm text-white/50 leading-relaxed"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          Each round, one team draws while the others race to guess.
-          <span className="text-white/70 font-semibold"> Everyone on your team can guess</span> — collaborate to get it first.
-          First team to guess correctly wins the round.
+          Each round, one team draws while the rest guess individually.
+          <span className="text-white/70 font-semibold"> Every player guesses on their own</span> — earn up to 250 pts, minus 50 per wrong guess.
+          Use <span className="text-amber-400 font-semibold">💡 Hint</span> to reveal a clue, or <span className="text-red-400 font-semibold">💣 Sabotage</span> to deal 100 pts damage to an opponent's team.
         </div>
 
         {/* Action */}
         {isHost ? (
-          <button className="btn-primary w-full" onClick={handleStartGame}>
-            Let's Play
-          </button>
+          <div className="space-y-3">
+            <button className="btn-primary w-full" onClick={handleStartGame}>
+              Let's Play
+            </button>
+
+            {/* Reshuffle with team count picker */}
+            <div className="rounded-2xl p-3 space-y-2.5"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <p className="text-white/30 text-[11px] uppercase tracking-widest font-semibold text-center">
+                🔀 Reshuffle into
+              </p>
+              <div className="flex gap-1.5 justify-center flex-wrap">
+                {teamCountOptions.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setSelectedTeamCount(n)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+                    style={selectedTeamCount === n
+                      ? { background: 'rgba(0,177,79,0.2)', color: '#00B14F', border: '1px solid rgba(0,177,79,0.4)' }
+                      : { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.08)' }
+                    }
+                  >
+                    {n} teams
+                  </button>
+                ))}
+              </div>
+              <button
+                className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.1)' }}
+                onClick={handleReshuffle}
+              >
+                Reshuffle
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="flex items-center justify-center gap-2 text-white/30 text-sm">
             <span className="w-1.5 h-1.5 rounded-full bg-grab animate-pulse" />

@@ -3,7 +3,7 @@ import { db } from '../firebase'
 import { ref, push, onValue } from 'firebase/database'
 
 export default function Chat({ roomCode, playerId, playerName, myTeamId, myTeam, teams }) {
-  const [tab, setTab] = useState('team')
+  const [tab, setTab] = useState('global')
   const [text, setText] = useState('')
   const [teamMsgs, setTeamMsgs] = useState([])
   const [globalMsgs, setGlobalMsgs] = useState([])
@@ -71,8 +71,8 @@ export default function Chat({ roomCode, playerId, playerName, myTeamId, myTeam,
       {/* Tabs */}
       <div className="flex flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         {[
-          { id: 'team', label: 'Team', unread: teamUnread },
           { id: 'global', label: 'All', unread: globalUnread },
+          { id: 'team', label: 'Team', unread: teamUnread },
         ].map(({ id, label, unread }) => (
           <button
             key={id}

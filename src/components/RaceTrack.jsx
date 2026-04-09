@@ -94,13 +94,19 @@ const DurianFruit   = makeImageIcon('/team-durian.png',    '#00B14F', -6)
 const PandanLeaf    = makeImageIcon('/team-pandan.png',    '#4ade80', -8)
 const LaksaBowl     = makeImageIcon('/team-laksa.png',     '#f97316', -5)
 const TehTarikGlass = makeImageIcon('/team-teh-tarik.png', '#f59e0b',  5)
+const CendolBowl    = makeImageIcon('/team-cendol.png',    '#06b6d4', -4)
+const SatayPlate    = makeImageIcon('/team-satay.png',     '#f97316', -5)
+const RendangBowl   = makeImageIcon('/team-rendang.png',   '#8b5cf6', -4)
+const RotiCanai     = makeImageIcon('/team-roti-canai.png','#10b981', -3)
+const SambalBowl    = makeImageIcon('/team-sambal.png',    '#ef4444', -5)
+const NasiLemak     = makeImageIcon('/team-nasi-lemak.png','#a16207', -4)
 
 const TEAM_VEHICLE_MAP = {
   'Durian': DurianFruit, 'Pandan': PandanLeaf,
   'Laksa': LaksaBowl, 'Teh Tarik': TehTarikGlass,
-  'Cendol': GrabFood, 'Satay': GrabBike,
-  'Rendang': GrabVan, 'Roti Canai': GrabCar,
-  'Sambal': GrabBike, 'Nasi Lemak': GrabFood,
+  'Cendol': CendolBowl, 'Satay': SatayPlate,
+  'Rendang': RendangBowl, 'Roti Canai': RotiCanai,
+  'Sambal': SambalBowl, 'Nasi Lemak': NasiLemak,
 }
 
 const getVehicle = (teamName) =>
@@ -130,7 +136,7 @@ function hexToRgb(hex) {
 // displayScores persists and vehicles continue from their last position.
 // Pass ready=false to hold animation until you're ready to trigger it.
 // Pass totalRounds so TRACK_MAX scales to exactly fit the game length.
-export default function RaceTrack({ teams, teamResults, ready = true, totalRounds, myTeamId, players = {} }) {
+export default function RaceTrack({ teams, teamResults, ready = true, totalRounds, myTeamId, players = {}, roundDeltas = {} }) {
   // Max points a team can earn = totalRounds × 250 (max per round as guesser)
   const TRACK_MAX = totalRounds ? totalRounds * 250 : BASE_TRACK_MAX
   // Lock team order on first render — rows NEVER re-sort, only rank badge updates
@@ -141,10 +147,15 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
   const teamIds = teamIdsRef.current
 
   // displayScores = where vehicles visually ARE right now
-  // Initialise from current teams scores (not 0) so on remount vehicles start
-  // at the position they finished last round, not the beginning of the track
+  // Initialise from PRE-round scores (current score minus roundDeltas[tid]) so
+  // vehicles start at their last-round position and race forward when ready fires.
   const [displayScores, setDisplayScores] = useState(() => {
-    const s = {}; teamIds.forEach(tid => { s[tid] = teams[tid]?.score || 0 }); return s
+    const s = {}
+    teamIds.forEach(tid => {
+      const delta = roundDeltas?.[tid] || 0
+      s[tid] = Math.max(0, (teams[tid]?.score || 0) - delta)
+    })
+    return s
   })
   const [phase, setPhase] = useState('settled')
   const [noMovement, setNoMovement] = useState(false)
@@ -186,7 +197,7 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
     const score = phase === 'racing'
       ? (teams[tid]?.score || 0)
       : (displayScores[tid] || 0)
-    return Math.min((score / TRACK_MAX) * 90, 90)
+    return Math.min(Math.max(0, (score / TRACK_MAX) * 90), 90)
   }
 
   return (
@@ -251,9 +262,10 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
                     YOU
                   </span>
                 )}
-                {result?.pts > 0 && (
-                  <span className="text-xs font-black animate-bounce-in" style={{ color: team?.color }}>
-                    +{result.pts}
+                {roundDeltas[tid] !== undefined && (
+                  <span className="text-xs font-black animate-bounce-in tabular-nums"
+                    style={{ color: roundDeltas[tid] >= 0 ? team?.color : '#ef4444' }}>
+                    {roundDeltas[tid] >= 0 ? '+' : ''}{roundDeltas[tid]}
                   </span>
                 )}
                 <span className="text-white font-black text-sm tabular-nums w-12 text-right">
@@ -311,23 +323,6 @@ export default function RaceTrack({ teams, teamResults, ready = true, totalRound
         })}
       </div>
 
-      {/* Rank pills */}
-      <div className="flex items-center gap-1.5 mt-4 pt-3 flex-wrap"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        {[...teamIds]
-          .sort((a, b) => (teams[b]?.score || 0) - (teams[a]?.score || 0))
-          .map((tid, i) => {
-            const team = teams[tid]
-            return (
-              <div key={tid} className="flex items-center gap-1 px-2 py-0.5 rounded-full"
-                style={{ background: `rgba(${hexToRgb(team?.color)}, 0.1)`, border: `1px solid rgba(${hexToRgb(team?.color)}, 0.25)` }}>
-                <span className="text-white/30 text-[10px]">#{i + 1}</span>
-                <div className="w-1.5 h-1.5 rounded-full" style={{ background: team?.color }} />
-                <span className="text-white/60 text-[10px] font-bold">{team?.name?.replace('Team ', '')}</span>
-              </div>
-            )
-          })}
-      </div>
     </div>
   )
 }

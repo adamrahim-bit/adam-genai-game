@@ -16,8 +16,8 @@ const PREP_TIME = 15           // seconds drawer studies word before guessing op
 const MAX_WRONG = 3
 
 const POWER_CARDS = [
-  { id: 'hint',     emoji: '💡', name: 'Hint',     desc: 'Reveal the word hint',                       cost: 50, targets: 'self'   },
-  { id: 'sabotage', emoji: '💣', name: 'Sabotage', desc: 'Add +1 wrong guess to a specific player',    cost: 60, targets: 'player' },
+  { id: 'hint',     emoji: '💡', name: 'Hint',     desc: 'Reveal the word hint',                       cost: 100, targets: 'self'   },
+  { id: 'sabotage', emoji: '💣', name: 'Sabotage', desc: 'Deal 100 pts damage to an opponent\'s team',  cost: 150, targets: 'player' },
 ]
 
 export default function Drawing({ playerId, playerName, roomCode, gameState, isHost, myTeamId, myTeam, exitRoom, exitRoomAsHost, deleteRoom }) {
@@ -82,7 +82,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     if (isPaused) return
     const tick = () => {
       const pausedOffset = gameState?.timerPausedOffset || 0
-      const totalElapsed = (Date.now() - (gameState?.roundStartedAt || Date.now())) / 1000 - pausedOffset
+      const totalElapsed = Math.max(0, (Date.now() - (gameState?.roundStartedAt || Date.now())) / 1000 - pausedOffset)
       if (totalElapsed < PREP_TIME) {
         setInPrepPhase(true)
         setPrepCountdown(Math.ceil(PREP_TIME - totalElapsed))
@@ -137,7 +137,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     if (!lca || lca.at === lastCardRef.current) return
     lastCardRef.current = lca.at
     const msgs = {
-      sabotage: `💣 ${lca.byTeamName} sabotaged you! −1 guess`,
+      sabotage: `💣 ${lca.byTeamName} sabotaged your team! −100 pts`,
     }
     showCardToast(msgs[lca.cardId] || '⚡ Power card!', '#ef4444')
   }, [myProgress.lastCardAgainst])
@@ -340,7 +340,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   // targetId is null for 'hint', or a playerId for 'sabotage'
   const handlePlayCard = async (cardId, targetId) => {
     const card = POWER_CARDS.find((c) => c.id === cardId)
-    if (!card || usedCard || myTeamScore < card.cost) return
+    if (!card || usedCards[cardId]) return
     const updates = {}
 
     if (cardId === 'hint') {
@@ -350,48 +350,19 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     } else if (cardId === 'sabotage') {
       const targetTeamId = Object.entries(teams).find(([, t]) => t.memberIds?.includes(targetId))?.[0]
       if (!targetTeamId) return
-      const targetMemberPath = `teamProgress/${targetTeamId}/members/${targetId}`
-      const targetProg = teamProgress[targetTeamId]?.members?.[targetId] || {}
       const targetPlayer = players[targetId]
-      const newWrong = (targetProg.wrongGuesses || 0) + 1
-      updates[`${targetMemberPath}/wrongGuesses`] = increment(1)
-      updates[`${targetMemberPath}/lastCardAgainst`] = { cardId: 'sabotage', byTeamName: myTeam?.name, at: Date.now() }
-      if (newWrong >= MAX_WRONG) {
-        updates[`${targetMemberPath}/done`] = true
-        updates[`${targetMemberPath}/failed`] = true
-        // Check if this eliminates the whole target team
-        const targetMembers = teams[targetTeamId]?.memberIds || []
-        const allTargetDone = targetMembers.every((pid) => {
-          if (pid === targetId) return true
-          return !!(teamProgress[targetTeamId]?.members?.[pid]?.done)
-        })
-        if (allTargetDone) {
-          updates[`teamProgress/${targetTeamId}/done`] = true
-          const guessingIds = Object.keys(teams).filter((tid) => tid !== drawingTeamId)
-          const allTeamsDone = guessingIds.every((tid) =>
-            tid === targetTeamId ? true : !!(teamProgress[tid]?.done)
-          )
-          if (allTeamsDone && !advancedRef.current) {
-            advancedRef.current = true
-            const anyWon = guessingIds.some((tid) => {
-              const members = teams[tid]?.memberIds || []
-              const prog = teamProgress[tid] || {}
-              return members.some((pid) => {
-                const done = tid === targetTeamId && pid === targetId ? true : prog.members?.[pid]?.done
-                const failed = tid === targetTeamId && pid === targetId ? true : prog.members?.[pid]?.failed
-                return done && !failed
-              })
-            })
-            updates.phase = 'roundreveal'
-            updates.roundWon = anyWon
-          }
-        }
+      const targetTeamScore = teams[targetTeamId]?.score || 0
+      // Deduct 100 pts from the target's team score
+      updates[`teams/${targetTeamId}/score`] = targetTeamScore - 100
+      // Record who got hit (for notifications + round reveal)
+      updates[`teamProgress/${targetTeamId}/members/${targetId}/lastCardAgainst`] = {
+        cardId: 'sabotage', byPlayerName: players[playerId]?.name, byTeamName: myTeam?.name, at: Date.now(),
       }
-      showCardToast(`💣 Sabotaged ${targetPlayer?.name || 'them'}!`, myTeam?.color)
+      showCardToast(`💣 Sabotaged ${targetPlayer?.name || 'them'}! Their team loses 100 pts`, myTeam?.color)
     }
 
-    updates[`teams/${myTeamId}/score`] = Math.max(0, myTeamScore - card.cost)
-    updates[`spectatorCardUsed/${playerId}`] = true
+    updates[`teams/${myTeamId}/score`] = myTeamScore - card.cost
+    updates[`spectatorCardUsed/${playerId}/${cardId}`] = true
     await update(ref(db, `rooms/${roomCode}`), updates)
     setCardPickTarget(null)
   }
@@ -407,7 +378,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   // Power card roles
   const isGuessingMember  = !isHost && !isOnDrawingTeam && !!myTeamId && !myPersonalDone
   const isDrawingSpectator = !isHost && isOnDrawingTeam && !isDrawer && !!myTeamId
-  const usedCard = !!(gameState?.spectatorCardUsed?.[playerId])
+  const usedCards = gameState?.spectatorCardUsed?.[playerId] || {}  // { hint: true, sabotage: true }
   const myTeamScore = myTeam?.score || 0
   // Guessers: Hint + Sabotage. Drawing spectators: Sabotage only. Drawer: none.
   const availableCards = isDrawingSpectator
@@ -481,25 +452,29 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             const isDrawingTeam = tid === drawingTeamId
             const isMine = tid === myTeamId
             return (
-              <div
-                key={tid}
-                className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg"
-                style={{
-                  background: isMine ? `rgba(${hexToRgb(team.color)}, 0.12)` : 'transparent',
-                  border: isMine ? `1px solid rgba(${hexToRgb(team.color)}, 0.25)` : '1px solid transparent',
-                }}
-              >
-                <div className="flex items-center gap-1">
-                  {getTeamImage(team.name)
-                    ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
-                    : <div className="w-2 h-2 rounded-full" style={{ background: team.color }} />
-                  }
-                  <span className="text-white/60 text-[10px] font-semibold">{team.name.replace('Team ', '')}</span>
-                  {isDrawingTeam && (
-                    <span className="text-[9px]" style={{ color: team.color }}>✏</span>
-                  )}
+              <div key={tid} className="flex flex-col items-center gap-0">
+                {isMine && (
+                  <span className="text-[8px] font-bold uppercase tracking-widest mb-0.5" style={{ color: team.color }}>Your team</span>
+                )}
+                <div
+                  className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg"
+                  style={{
+                    background: isMine ? `rgba(${hexToRgb(team.color)}, 0.12)` : 'transparent',
+                    border: isMine ? `1px solid rgba(${hexToRgb(team.color)}, 0.25)` : '1px solid transparent',
+                  }}
+                >
+                  <div className="flex items-center gap-1">
+                    {getTeamImage(team.name)
+                      ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
+                      : <div className="w-2 h-2 rounded-full" style={{ background: team.color }} />
+                    }
+                    <span className="text-white/60 text-[10px] font-semibold">{team.name.replace('Team ', '')}</span>
+                    {isDrawingTeam && (
+                      <span className="text-[9px]" style={{ color: team.color }}>✏</span>
+                    )}
+                  </div>
+                  <span className="text-white font-black text-xs tabular-nums">{team.score || 0}</span>
                 </div>
-                <span className="text-white font-black text-xs tabular-nums">{team.score || 0}</span>
               </div>
             )
           })}
@@ -514,16 +489,32 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
           {/* Context banner */}
           {isHost ? (
-            /* Host sees the word clearly — they're monitoring, not playing */
-            <div className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 rounded-xl flex-shrink-0"
-              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
-              <div>
-                <p className="text-amber-400/50 text-[10px] uppercase tracking-widest font-semibold mb-0.5">The word</p>
-                <p className="text-white font-black text-xl tracking-widest">{wordEntry?.word}</p>
+            /* Host — hold to peek, blurred by default for privacy */
+            <div
+              className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 rounded-xl flex-shrink-0 cursor-pointer select-none transition-all"
+              style={{ background: wordRevealed ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.06)', border: `1px solid ${wordRevealed ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.15)'}` }}
+              onPointerDown={() => setWordRevealed(true)}
+              onPointerUp={() => setWordRevealed(false)}
+              onPointerLeave={() => setWordRevealed(false)}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-amber-400/50 text-[10px] uppercase tracking-widest font-semibold mb-0.5">
+                  {wordRevealed ? 'The word' : 'Hold to reveal word'}
+                </p>
+                <p className="text-white font-black text-xl tracking-widest"
+                  style={{ filter: wordRevealed ? 'none' : 'blur(10px)', transition: 'filter 0.15s ease', userSelect: 'none' }}>
+                  {wordEntry?.word}
+                </p>
               </div>
-              <div className="text-right">
-                <p className="text-white/30 text-xs">{wordEntry?.category}</p>
-                <p className="text-white/30 text-xs mt-0.5 max-w-[140px] leading-tight">{wordEntry?.hint?.slice(2)}</p>
+              <div className="text-right ml-3 flex-shrink-0">
+                {wordRevealed ? (
+                  <>
+                    <p className="text-white/30 text-xs">{wordEntry?.category}</p>
+                    <p className="text-white/30 text-xs mt-0.5 max-w-[140px] leading-tight">{wordEntry?.hint?.slice(2)}</p>
+                  </>
+                ) : (
+                  <span className="text-2xl">👁️</span>
+                )}
               </div>
             </div>
           ) : isDrawer ? (
@@ -573,8 +564,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                     />
                   </div>
                   <div>
-                    <p className="text-white/30 text-[10px]">{drawingTeam?.name} is drawing</p>
-                    <p className="text-white font-bold text-sm">{drawer.name}</p>
+                    <p className="text-white font-bold text-sm"><span style={{ color: drawingTeam?.color }}>{drawer.name}</span> is drawing</p>
+                    <p className="text-white/30 text-[10px]">{drawingTeam?.name}</p>
                   </div>
                 </>
               )}
@@ -706,25 +697,29 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                             : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team.color }} />
                           }
                           <span className="text-white/60 text-xs font-semibold">{team.name}</span>
-                          {isDrawing && <span className="text-[9px]" style={{ color: team.color }}>✏ Drawing</span>}
                         </div>
                         {!isDrawing && (
                           <span className="text-[10px] tabular-nums" style={{ color: team.color }}>{doneCount}/{total} done</span>
                         )}
                       </div>
-                      {/* Per-member progress rows */}
-                      {!isDrawing && (team.memberIds || []).map((pid) => {
+                      {/* Per-member rows for all teams */}
+                      {(team.memberIds || []).map((pid) => {
                         const mp = teamProg.members?.[pid] || {}
                         const wn = mp.wrongGuesses || 0
+                        const isDrawer = pid === drawerId
                         return (
                           <div key={pid} className="flex items-center gap-1.5 mt-1">
-                            <span className="text-white/40 text-[9px] w-16 truncate">{players[pid]?.name}</span>
-                            {mp.done ? (
+                            <span className="text-white/50 text-[9px] w-20 truncate font-medium">{players[pid]?.name}</span>
+                            {isDrawing ? (
+                              isDrawer
+                                ? <span className="text-[9px] font-bold" style={{ color: team.color }}>✏ Drawing</span>
+                                : <span className="text-white/25 text-[9px]">Spectating</span>
+                            ) : mp.done ? (
                               mp.failed
                                 ? <span className="text-red-400 text-[9px] font-bold">Out</span>
                                 : <span className="text-[9px] font-bold" style={{ color: team.color }}>✓ {mp.score || 0}pts</span>
                             ) : (
-                              <span className="text-white/25 text-[9px]">{wn > 0 ? `${wn} wrong` : 'guessing…'}</span>
+                              <span className="text-white/25 text-[9px]">{wn > 0 ? `${wn} wrong · guessing…` : 'Guessing…'}</span>
                             )}
                           </div>
                         )
@@ -760,31 +755,78 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 </div>
               )}
 
-              {/* My team's role badge */}
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ background: myTeam?.color }} />
-                <span className="text-white/40 text-xs font-semibold">{myTeam?.name}</span>
-                {myPersonalDone ? (
-                  myProgress.failed ? (
-                    <span className="ml-auto text-[10px] text-red-400 font-bold">Out of guesses</span>
-                  ) : (
-                    <span className="ml-auto text-[10px] font-bold" style={{ color: myTeam?.color }}>Guessed it!</span>
-                  )
-                ) : (
-                  <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full"
-                    style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, color: myTeam?.color }}>
-                    Guessing
-                  </span>
-                )}
+              {/* Team + players card */}
+              <div className="rounded-xl overflow-hidden"
+                style={{ border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.25)` }}>
+
+                {/* Team header */}
+                <div className="flex items-center gap-2 px-3 py-2"
+                  style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, borderBottom: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.2)` }}>
+                  {getTeamImage(myTeam?.name)
+                    ? <img src={getTeamImage(myTeam?.name)} alt="" className="w-5 h-5 object-contain flex-shrink-0" />
+                    : <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: myTeam?.color }} />
+                  }
+                  <span className="font-black text-xs flex-1" style={{ color: myTeam?.color }}>{myTeam?.name}</span>
+                  <span className="font-black text-sm tabular-nums text-white">{myTeamScore} pts</span>
+                </div>
+
+                {/* All members */}
+                <div className="divide-y" style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.05)`, borderColor: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.1)` }}>
+                  {(myTeam?.memberIds || []).map((pid) => {
+                    const isMe = pid === playerId
+                    const mp = isMe ? myProgress : (teamProgress[myTeamId]?.members?.[pid] || {})
+                    const wn = isMe ? wrongCount : (mp.wrongGuesses || 0)
+                    const p = players[pid]
+                    if (!p) return null
+                    return (
+                      <div key={pid} className="flex items-center gap-2 px-3 py-2"
+                        style={{ borderTop: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.1)` }}>
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0"
+                          style={isMe
+                            ? { background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)`, color: myTeam?.color }
+                            : { background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.4)' }}>
+                          {p.name?.[0]?.toUpperCase()}
+                        </div>
+                        <span className={`text-xs font-bold flex-1 truncate ${isMe ? 'text-white' : 'text-white/55'}`}>{p.name}</span>
+                        {isMe && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-black mr-1"
+                            style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.25)`, color: myTeam?.color }}>YOU</span>
+                        )}
+                        {mp.done ? (
+                          mp.failed
+                            ? <span className="text-red-400 text-[10px] font-bold flex-shrink-0">Out</span>
+                            : <span className="text-[10px] font-bold flex-shrink-0" style={{ color: myTeam?.color }}>✓ {mp.score || 0}pts</span>
+                        ) : (
+                          <span className="text-white/30 text-[10px] flex-shrink-0">
+                            {wn > 0 ? `${wn} wrong` : 'Guessing…'}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
-              {/* Individual word board */}
-              <LetterBoard
-                word={wordEntry?.word || ''}
-                guessedLetters={guessedLetters}
-                wrongLetters={wrongLetters}
-                wrongCount={wrongCount}
-              />
+              {/* Individual word board — blurred when done for privacy */}
+              <div className="relative">
+                <div style={{ filter: myPersonalDone ? 'blur(8px)' : 'none', transition: 'filter 0.2s ease', userSelect: 'none' }}
+                  onPointerDown={(e) => { if (myPersonalDone) e.currentTarget.style.filter = 'none' }}
+                  onPointerUp={(e) => { if (myPersonalDone) e.currentTarget.style.filter = 'blur(8px)' }}
+                  onPointerLeave={(e) => { if (myPersonalDone) e.currentTarget.style.filter = 'blur(8px)' }}>
+                  <LetterBoard
+                    word={wordEntry?.word || ''}
+                    guessedLetters={guessedLetters}
+                    wrongLetters={wrongLetters}
+                    wrongCount={wrongCount}
+                    typingPreview={fullGuess}
+                  />
+                </div>
+                {myPersonalDone && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-white/30 text-[10px] font-semibold tracking-widest uppercase">Hold to reveal</span>
+                  </div>
+                )}
+              </div>
 
               {/* Guessing controls */}
               {!myPersonalDone && (
@@ -820,8 +862,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   <p className="text-white/20 text-[10px] uppercase tracking-widest font-semibold">Power Cards</p>
                   <div className="flex gap-1.5">
                     {availableCards.map((card) => {
-                      const canAfford = myTeamScore >= card.cost
-                      const disabled = usedCard || !canAfford || (card.id === 'hint' && hintRevealed)
+                      const alreadyUsed = !!usedCards[card.id]
+                      const disabled = alreadyUsed || (card.id === 'hint' && hintRevealed)
                       const teamColor = myTeam?.color || '#00B14F'
                       const isSelected = cardPickTarget === card.id
                       return (
@@ -830,28 +872,36 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                             if (card.id === 'hint') handlePlayCard('hint', null)
                             else setCardPickTarget(isSelected ? null : card.id)
                           }}
-                          className="flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all active:scale-95 disabled:opacity-30"
+                          className="flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all active:scale-95 disabled:opacity-40"
                           style={{
                             background: isSelected ? `rgba(${hexToRgb(teamColor)}, 0.2)` : disabled ? 'rgba(255,255,255,0.03)' : `rgba(${hexToRgb(teamColor)}, 0.1)`,
                             border: `1px solid ${isSelected ? `rgba(${hexToRgb(teamColor)}, 0.5)` : disabled ? 'rgba(255,255,255,0.06)' : `rgba(${hexToRgb(teamColor)}, 0.25)`}`,
                           }}>
                           <span className="text-xl leading-none">{card.emoji}</span>
-                          <span className="text-white/70 text-[9px] font-bold leading-none mt-0.5">{card.name}</span>
-                          <span className="text-[9px] font-black leading-none" style={{ color: teamColor }}>{card.cost} pts</span>
+                          <span className="text-white/70 text-[9px] font-bold leading-none mt-0.5">
+                            {alreadyUsed ? '✓ Used' : card.name}
+                          </span>
+                          {!alreadyUsed && (
+                            <span className="text-white/30 text-[8px] leading-tight text-center px-1">
+                              {card.id === 'hint' ? 'Reveal the word hint' : 'Deal 100 pts damage to a team'}
+                            </span>
+                          )}
+                          <span className="text-[9px] font-black leading-none" style={{ color: '#ef4444' }}>−{card.cost} pts</span>
                         </button>
                       )
                     })}
                   </div>
-                  {usedCard && <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>}
-                  {/* Sabotage: pick a player on any other guessing team */}
+                  {/* Sabotage: anyone except yourself */}
                   {cardPickTarget === 'sabotage' && (
                     <div className="rounded-xl overflow-hidden animate-slide-up"
                       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick a player to sabotage</p>
+                      <div className="px-3 pt-2.5 pb-1.5">
+                        <p className="text-white/50 text-[10px] uppercase tracking-widest font-semibold">💣 Pick a player to sabotage</p>
+                        <p className="text-white/25 text-[10px] mt-0.5">Deals 100 pts damage to their team — costs you 150 pts</p>
+                      </div>
                       {Object.entries(teams)
-                        .filter(([tid]) => tid !== drawingTeamId && tid !== myTeamId)
                         .flatMap(([tid, team]) => (team.memberIds || []).map((pid) => ({ pid, team, tid })))
-                        .filter(({ pid }) => !teamProgress[Object.entries(teams).find(([,t])=>t.memberIds?.includes(pid))?.[0]]?.members?.[pid]?.done)
+                        .filter(({ pid }) => pid !== playerId)
                         .map(({ pid, team }) => {
                           const p = players[pid]
                           if (!p) return null
@@ -966,17 +1016,18 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                       )
                     })}
                   </div>
-                  {usedCard && <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>}
 
-                  {/* Player picker — shows individual players on guessing teams */}
+                  {/* Player picker — anyone except yourself */}
                   {cardPickTarget && (
                     <div className="rounded-xl overflow-hidden animate-slide-up"
                       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick a player to sabotage</p>
+                      <div className="px-3 pt-2.5 pb-1.5">
+                        <p className="text-white/50 text-[10px] uppercase tracking-widest font-semibold">💣 Pick a player to sabotage</p>
+                        <p className="text-white/25 text-[10px] mt-0.5">Deals 100 pts damage to their team — costs you 150 pts</p>
+                      </div>
                       {Object.entries(teams)
-                        .filter(([tid]) => tid !== drawingTeamId)
                         .flatMap(([tid, team]) => (team.memberIds || []).map((pid) => ({ pid, team, tid })))
-                        .filter(({ pid, tid }) => !teamProgress[tid]?.members?.[pid]?.done)
+                        .filter(({ pid }) => pid !== playerId)
                         .map(({ pid, team }) => {
                           const p = players[pid]
                           if (!p) return null
@@ -1132,9 +1183,16 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <>
                 <div className="text-5xl">🎨</div>
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your word to draw</p>
-                <div className="px-4 py-4 rounded-2xl" style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.35)` }}>
-                  <p className="font-black text-4xl tracking-widest uppercase leading-tight" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
-                  <p className="text-white/35 text-xs mt-2">{wordEntry.category} · {wordEntry.hint}</p>
+                <div className="relative px-4 py-4 rounded-2xl select-none cursor-pointer"
+                  style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.35)` }}
+                  onPointerDown={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'none'}
+                  onPointerUp={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'blur(10px)'}
+                  onPointerLeave={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'blur(10px)'}>
+                  <div className="word-blur" style={{ filter: 'blur(10px)', transition: 'filter 0.15s ease' }}>
+                    <p className="font-black text-4xl tracking-widest uppercase leading-tight" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
+                    <p className="text-white/35 text-xs mt-2">{wordEntry.category} · {wordEntry.hint}</p>
+                  </div>
+                  <p className="absolute inset-0 flex items-center justify-center text-white/40 text-[11px] font-semibold tracking-widest uppercase pointer-events-none">Hold to reveal</p>
                 </div>
                 <p className="text-white/50 text-sm">Study the word, then start drawing!</p>
                 <p className="text-white/20 text-xs">No writing or speaking the answer</p>
@@ -1188,9 +1246,16 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 <div className="text-5xl mb-2">🎨</div>
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your turn to draw</p>
                 <p className="text-white font-black text-2xl leading-tight">Draw this word!</p>
-                <div className="px-4 py-3 rounded-xl mt-2" style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
-                  <p className="font-black text-3xl tracking-widest uppercase" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
-                  <p className="text-white/30 text-xs mt-1">{wordEntry.category} · {wordEntry.hint}</p>
+                <div className="relative px-4 py-3 rounded-xl mt-2 select-none cursor-pointer"
+                  style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}
+                  onPointerDown={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'none'}
+                  onPointerUp={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'blur(10px)'}
+                  onPointerLeave={(e) => e.currentTarget.querySelector('.word-blur').style.filter = 'blur(10px)'}>
+                  <div className="word-blur" style={{ filter: 'blur(10px)', transition: 'filter 0.15s ease' }}>
+                    <p className="font-black text-3xl tracking-widest uppercase" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
+                    <p className="text-white/30 text-xs mt-1">{wordEntry.category} · {wordEntry.hint}</p>
+                  </div>
+                  <p className="absolute inset-0 flex items-center justify-center text-white/40 text-[11px] font-semibold tracking-widest uppercase pointer-events-none">Hold to reveal</p>
                 </div>
                 <p className="text-white/20 text-xs">Sketch it out — no writing or speaking the answer!</p>
               </>

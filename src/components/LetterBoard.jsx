@@ -5,13 +5,25 @@ const PENALTY   = 50   // deducted per wrong guess
 const MAX_WRONG = 3
 const MAX_PTS   = BASE_PTS + MAX_WRONG * PENALTY  // 250
 
-export default function LetterBoard({ word = '', guessedLetters = {}, wrongLetters = {}, wrongCount: wrongCountProp, revealed = false }) {
+export default function LetterBoard({ word = '', guessedLetters = {}, wrongLetters = {}, wrongCount: wrongCountProp, revealed = false, typingPreview = '' }) {
   const wrongCount  = wrongCountProp !== undefined ? wrongCountProp : Object.keys(wrongLetters).length
   const currentPts  = MAX_PTS - wrongCount * PENALTY   // 250 → 200 → 150 → 100
   const pct         = (currentPts / MAX_PTS) * 100
 
   const chars   = word.toUpperCase().split('')
   const isSmall = word.length > 9
+
+  // Map typed characters onto blank (non-revealed, non-space) slots in order
+  const typedChars = typingPreview.toUpperCase().replace(/ /g, '').split('')
+  let typedIdx = 0
+  const previewMap = {} // position index → typed char
+  chars.forEach((char, i) => {
+    if (char === ' ') return
+    if (revealed || guessedLetters[char]) return // already revealed, skip
+    if (typedIdx < typedChars.length) {
+      previewMap[i] = typedChars[typedIdx++]
+    }
+  })
 
   return (
     <div className="w-full">
@@ -47,6 +59,7 @@ export default function LetterBoard({ word = '', guessedLetters = {}, wrongLette
             return <div key={i} className="w-4" />
           }
           const isRevealed = revealed || !!guessedLetters[char]
+          const preview = !isRevealed ? previewMap[i] : null
           return (
             <div key={i} className="flex flex-col items-center">
               <span
@@ -57,13 +70,15 @@ export default function LetterBoard({ word = '', guessedLetters = {}, wrongLette
                     ? revealed && !guessedLetters[char]
                       ? 'text-amber-400 animate-bounce-in'
                       : 'text-white animate-pop'
-                    : 'text-transparent'
+                    : preview
+                      ? 'text-white/60'
+                      : 'text-transparent'
                 }`}
               >
-                {isRevealed ? char : '_'}
+                {isRevealed ? char : preview ?? '_'}
               </span>
               <div className={`h-0.5 mt-1 rounded-full ${isSmall ? 'w-6' : 'w-8'}`}
-                style={{ background: isRevealed ? '#00B14F' : 'rgba(255,255,255,0.25)' }} />
+                style={{ background: isRevealed ? '#00B14F' : preview ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.25)' }} />
             </div>
           )
         })}

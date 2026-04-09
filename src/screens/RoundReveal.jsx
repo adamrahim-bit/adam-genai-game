@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { db } from '../firebase'
-import { ref, update } from 'firebase/database'
+import { ref, update, increment } from 'firebase/database'
 import { WORD_LIST, getRandomWordIndex } from '../data/wordList'
 import PlayerAvatar from '../components/PlayerAvatar'
 import RaceTrack from '../components/RaceTrack'
@@ -37,6 +37,7 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
   const wordEntry = WORD_LIST[gameState?.wordIndex]
   const roundWon = gameState?.roundWon
   const teamProgress = gameState?.teamProgress || {}
+  const spectatorCardUsed = gameState?.spectatorCardUsed || {}
   const currentRound = gameState?.currentRound || 0
   const totalRounds = gameState?.totalRounds || 1
   const isLastRound = currentRound + 1 >= totalRounds
@@ -44,46 +45,86 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
   const drawingTeam = drawingTeamId ? teams[drawingTeamId] : null
   const teamIds = Object.keys(teams)
 
-  // Per-team results
+  // Build power card activity log
+  const cardEvents = []
+  // Hint users
+  Object.entries(spectatorCardUsed).forEach(([pid, cards]) => {
+    if (cards.hint) {
+      cardEvents.push({ type: 'hint', actorName: players[pid]?.name || 'Someone', at: 0 })
+    }
+  })
+  // Sabotage victims (read from teamProgress)
+  Object.values(teamProgress).forEach((tp) => {
+    Object.entries(tp.members || {}).forEach(([pid, mp]) => {
+      if (mp.lastCardAgainst?.cardId === 'sabotage') {
+        cardEvents.push({
+          type: 'sabotage',
+          actorName: mp.lastCardAgainst.byPlayerName || mp.lastCardAgainst.byTeamName || '?',
+          victimName: players[pid]?.name || '?',
+          at: mp.lastCardAgainst.at || 0,
+        })
+      }
+    })
+  })
+  cardEvents.sort((a, b) => a.at - b.at)
+
+  // Per-team results — sum individual member scores already written by Drawing.jsx
   const guessingTeamIds = teamIds.filter((tid) => tid !== drawingTeamId)
   const teamResults = guessingTeamIds.map((tid) => {
     const team = teams[tid]
     const prog = teamProgress[tid] || {}
-    const succeeded = prog.done && !prog.failed
-    const heartsLeft = MAX_WRONG - (prog.wrongGuesses || 0)
-    const pts = succeeded ? BASE_POINTS + heartsLeft * HEART_BONUS : 0
-    return { tid, team, prog, succeeded, heartsLeft, pts }
+    const members = prog.members || {}
+    const memberIds = team.memberIds || []
+    // Sum scores each player individually earned this round
+    const pts = memberIds.reduce((sum, pid) => sum + (members[pid]?.score || 0), 0)
+    const succeeded = memberIds.some((pid) => members[pid]?.done && !members[pid]?.failed)
+    const memberRows = memberIds.map((pid) => ({
+      pid,
+      name: players[pid]?.name || pid,
+      done: members[pid]?.done || false,
+      failed: members[pid]?.failed || false,
+      score: members[pid]?.score || 0,
+      wrong: members[pid]?.wrongGuesses || 0,
+    }))
+    return { tid, team, prog, succeeded, pts, memberRows }
   })
+
+  // Power card costs per team this round (for net delta calculation)
+  const CARD_COSTS = { hint: 100, sabotage: 150 }
+  const powerCostByTeam = {}
+  Object.entries(spectatorCardUsed).forEach(([pid, cards]) => {
+    const tid = Object.entries(teams).find(([, t]) => t.memberIds?.includes(pid))?.[0]
+    if (!tid) return
+    powerCostByTeam[tid] = (powerCostByTeam[tid] || 0) +
+      (cards.hint ? CARD_COSTS.hint : 0) +
+      (cards.sabotage ? CARD_COSTS.sabotage : 0)
+  })
+
+  // Round deltas — actual net change per team this round (earned − card costs)
+  const roundDeltas = {}
+  teamResults.forEach(({ tid, pts }) => {
+    roundDeltas[tid] = pts - (powerCostByTeam[tid] || 0)
+  })
+  if (roundWon && drawingTeamId) roundDeltas[drawingTeamId] = DRAWING_TEAM_POINTS
 
   // First team to guess (by doneAt timestamp)
   const firstTeamResult = teamResults
     .filter((r) => r.succeeded && r.prog.doneAt)
     .sort((a, b) => a.prog.doneAt - b.prog.doneAt)[0]
 
-  // Apply team scores once on mount (host only)
+  // Apply drawing team bonus once (host only). Guard with Firebase flag to survive remounts.
   useEffect(() => {
-    if (!isHost || scoredRef.current) return
+    if (!isHost || scoredRef.current || gameState?.drawingBonusApplied) return
     scoredRef.current = true
-    const updates = {}
+    const updates = { drawingBonusApplied: true }
 
-    // Each guessing team scores independently by hearts remaining
-    teamResults.forEach(({ tid, team, succeeded, heartsLeft }) => {
-      if (succeeded) {
-        const pts = BASE_POINTS + heartsLeft * HEART_BONUS
-        updates[`teams/${tid}/score`] = (team.score || 0) + pts
-      }
-    })
-
-    // Drawing team scores if anyone guessed
     const anyWon = teamResults.some((r) => r.succeeded)
-    if (anyWon && drawingTeamId && teams[drawingTeamId]) {
-      updates[`teams/${drawingTeamId}/score`] = (teams[drawingTeamId].score || 0) + DRAWING_TEAM_POINTS
+    if (anyWon && drawingTeamId) {
+      updates[`teams/${drawingTeamId}/score`] = increment(DRAWING_TEAM_POINTS)
     }
 
-    if (Object.keys(updates).length > 0) {
-      update(ref(db, `rooms/${roomCode}`), updates)
-    }
-  }, [])
+    update(ref(db, `rooms/${roomCode}`), updates)
+  }, [gameState?.drawingBonusApplied])
 
   // Skip podium — keep scores, start another full cycle immediately
   const handleContinue = async () => {
@@ -110,7 +151,7 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
       canvasClearedAt: Date.now(),
       teamProgress: null, strokes: null,
       roundWon: null, winningTeamId: null, showRace: null,
-      spectatorCardUsed: null,
+      spectatorCardUsed: null, drawingBonusApplied: null,
     })
   }
 
@@ -151,6 +192,7 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
       strokes: null,
       showRace: null,
       spectatorCardUsed: null,
+      drawingBonusApplied: null,
     })
   }
 
@@ -195,6 +237,38 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
           <p className="text-white/30 text-sm">{wordEntry?.hint}</p>
         </div>
 
+        {/* Power card activity */}
+        {cardEvents.length > 0 && (
+          <div className="card space-y-2">
+            <p className="text-white/30 text-xs uppercase tracking-widest font-semibold">Power Cards Used</p>
+            {cardEvents.map((ev, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
+                style={ev.type === 'hint'
+                  ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }
+                  : { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                <span className="text-base leading-none">{ev.type === 'hint' ? '💡' : '💣'}</span>
+                <div className="flex-1 min-w-0">
+                  {ev.type === 'hint' ? (
+                    <p className="text-white/70 text-xs font-semibold">
+                      <span className="text-amber-400">{ev.actorName}</span>
+                      <span className="text-white/40"> used </span>
+                      <span className="text-amber-400">Hint</span>
+                      <span className="text-white/30 ml-1">−100 pts</span>
+                    </p>
+                  ) : (
+                    <p className="text-white/70 text-xs font-semibold">
+                      <span className="text-red-400">{ev.actorName}</span>
+                      <span className="text-white/40"> sabotaged </span>
+                      <span className="text-red-400">{ev.victimName}</span>
+                      <span className="text-white/30 ml-1">−100 pts from their team</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Per-team results */}
         <div className="card space-y-3">
           <p className="text-white/30 text-xs uppercase tracking-widest font-semibold">Round Results</p>
@@ -221,57 +295,55 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
           )}
 
           {/* Each guessing team */}
-          {teamResults.map(({ tid, team, succeeded, heartsLeft, pts, prog }) => {
+          {teamResults.map(({ tid, team, succeeded, pts, memberRows }) => {
             const isFirst = firstTeamResult?.tid === tid
             return (
-              <div key={tid} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+              <div key={tid} className="rounded-xl overflow-hidden"
                 style={{
-                  background: succeeded ? `rgba(${hexToRgb(team.color)}, 0.08)` : 'rgba(255,255,255,0.03)',
-                  border: succeeded ? `1px solid rgba(${hexToRgb(team.color)}, 0.2)` : '1px solid rgba(255,255,255,0.06)',
+                  background: succeeded ? `rgba(${hexToRgb(team.color)}, 0.06)` : 'rgba(255,255,255,0.02)',
+                  border: succeeded ? `1px solid rgba(${hexToRgb(team.color)}, 0.25)` : '1px solid rgba(255,255,255,0.06)',
                 }}>
-                {getTeamImage(team.name)
-                  ? <img src={getTeamImage(team.name)} alt="" className="w-7 h-7 object-contain flex-shrink-0" />
-                  : <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: team.color }} />
-                }
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-white font-bold text-sm">{team.name}</p>
-                    {isFirst && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                        style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}>
-                        First!
-                      </span>
+                {/* Team header row */}
+                <div className="flex items-center gap-2.5 px-3 py-2"
+                  style={{ borderBottom: `1px solid rgba(${hexToRgb(team.color)}, 0.12)`, background: `rgba(${hexToRgb(team.color)}, 0.08)` }}>
+                  {getTeamImage(team.name)
+                    ? <img src={getTeamImage(team.name)} alt="" className="w-5 h-5 object-contain flex-shrink-0" />
+                    : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team.color }} />
+                  }
+                  <span className="font-bold text-sm flex-1" style={{ color: team.color }}>{team.name}</span>
+                  {isFirst && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded mr-1"
+                      style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}>
+                      First!
+                    </span>
+                  )}
+                  <div className="text-right">
+                    <span className="font-black text-base" style={{ color: succeeded ? team.color : 'rgba(255,255,255,0.2)' }}>
+                      +{pts}
+                    </span>
+                    <span className="text-white/30 text-xs ml-0.5">pts</span>
+                  </div>
+                </div>
+                {/* Per-member rows */}
+                {memberRows.map((m) => (
+                  <div key={m.pid} className="flex items-center gap-2 px-3 py-1.5"
+                    style={{ borderTop: `1px solid rgba(255,255,255,0.04)` }}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0"
+                      style={{ background: `rgba(${hexToRgb(team.color)}, 0.15)`, color: team.color }}>
+                      {m.name?.[0]?.toUpperCase()}
+                    </div>
+                    <span className="text-white/60 text-xs flex-1">{m.name}</span>
+                    {m.done ? (
+                      m.failed
+                        ? <span className="text-red-400 text-xs font-bold">Out · +0</span>
+                        : <span className="text-xs font-bold" style={{ color: team.color }}>
+                            {m.wrong > 0 ? `${m.wrong} wrong · ` : ''}+{m.score} pts
+                          </span>
+                    ) : (
+                      <span className="text-white/25 text-xs">Did not finish</span>
                     )}
                   </div>
-                  {succeeded ? (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-16 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                        <div className="h-full rounded-full"
-                          style={{
-                            width: `${(pts / 250) * 100}%`,
-                            background: heartsLeft === MAX_WRONG ? '#00B14F' : heartsLeft === MAX_WRONG - 1 ? '#f59e0b' : '#ef4444',
-                          }} />
-                      </div>
-                      <span className="text-white/50 text-xs tabular-nums">
-                        {MAX_WRONG - heartsLeft} wrong · earned {pts} pts
-                      </span>
-                    </div>
-                  ) : (
-                    <p className="text-red-400/60 text-xs mt-0.5">
-                      {prog.failed ? 'Points ran out' : 'Did not guess'}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right">
-                  {succeeded ? (
-                    <>
-                      <p className="font-black text-base" style={{ color: team.color }}>+{pts}</p>
-                      <p className="text-white/30 text-xs">pts</p>
-                    </>
-                  ) : (
-                    <p className="text-white/20 font-bold text-sm">+0</p>
-                  )}
-                </div>
+                ))}
               </div>
             )
           })}
@@ -344,7 +416,7 @@ export default function RoundReveal({ playerId, roomCode, gameState, isHost, myT
 
           {/* Race track — always in DOM so displayScores survives until overlay opens */}
           <div className="flex-1 overflow-y-auto px-4 pb-4 relative">
-            <RaceTrack teams={teams} teamResults={teamResults} ready={raceReady} totalRounds={totalRounds} myTeamId={myTeamId} players={gameState?.players || {}} />
+            <RaceTrack teams={teams} teamResults={teamResults} ready={raceReady} totalRounds={totalRounds} myTeamId={myTeamId} players={gameState?.players || {}} roundDeltas={roundDeltas} />
           </div>
 
           {/* No-score splash prompt — appears over the track when nobody scored */}

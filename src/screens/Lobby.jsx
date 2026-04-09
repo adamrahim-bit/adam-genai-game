@@ -5,10 +5,11 @@ import { assignTeams } from '../utils'
 import PlayerAvatar from '../components/PlayerAvatar'
 
 const HOW_TO = [
-  { step: '01', text: 'Teams are randomly assigned — 3 to 4 players each' },
-  { step: '02', text: 'One team draws each round while the others race to guess' },
-  { step: '03', text: 'Everyone on your team can guess at the same time — collaborate!' },
-  { step: '04', text: 'Guess by letter or type the full word — first team to get it wins' },
+  { step: '01', emoji: '👥', text: 'Players are split into teams — each team takes turns drawing' },
+  { step: '02', emoji: '🎨', text: 'The drawing team studies the word for 15 seconds, then starts drawing' },
+  { step: '03', emoji: '🔍', text: 'Every player guesses individually — tap letters or type the full word' },
+  { step: '04', emoji: '🏆', text: 'Earn up to 250 pts per player — −50 pts for each wrong guess' },
+  { step: '05', emoji: '💣', text: 'Use power cards: 💡 Hint reveals a clue (−100 pts), 💣 Sabotage deals 100 pts damage to an opponent\'s team (costs you 150 pts)' },
 ]
 
 const TIMER_OPTIONS = [120, 180, 240]
@@ -108,15 +109,15 @@ export default function Lobby({ playerId, roomCode, gameState, isHost, exitRoom,
         <div className="card mb-4">
           <p className="text-white/40 text-xs font-semibold uppercase tracking-widest mb-4">How it works</p>
           <div className="space-y-3">
-            {HOW_TO.map(({ step, text }) => (
+            {HOW_TO.map(({ step, emoji, text }) => (
               <div key={step} className="flex items-start gap-3">
-                <span
-                  className="text-xs font-black flex-shrink-0 mt-0.5 w-7 h-5 flex items-center justify-center rounded"
-                  style={{ color: '#00B14F', background: 'rgba(0,177,79,0.12)' }}
-                >
-                  {step}
-                </span>
-                <p className="text-white/60 text-sm leading-snug">{text}</p>
+                <div className="flex-shrink-0 mt-0.5 w-8 h-8 flex items-center justify-center rounded-xl text-base"
+                  style={{ background: 'rgba(0,177,79,0.1)', border: '1px solid rgba(0,177,79,0.2)' }}>
+                  {emoji}
+                </div>
+                <div className="flex-1 min-w-0 pt-1">
+                  <p className="text-white/60 text-sm leading-snug">{text}</p>
+                </div>
               </div>
             ))}
           </div>

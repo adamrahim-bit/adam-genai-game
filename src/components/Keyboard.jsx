@@ -1,6 +1,6 @@
 import React from 'react'
 
-const ROWS = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM']
+const ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM']
 
 export default function Keyboard({ guessedLetters = {}, wrongLetters = {}, onGuess, disabled = false }) {
   return (

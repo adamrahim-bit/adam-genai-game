@@ -15,6 +15,12 @@ export const TEAM_IMAGES = {
   'Pandan':    '/team-pandan.png',
   'Laksa':     '/team-laksa.png',
   'Teh Tarik': '/team-teh-tarik.png',
+  'Cendol':    '/team-cendol.png',
+  'Satay':     '/team-satay.png',
+  'Rendang':   '/team-rendang.png',
+  'Roti Canai': '/team-roti-canai.png',
+  'Sambal':     '/team-sambal.png',
+  'Nasi Lemak': '/team-nasi-lemak.png',
 }
 
 // Returns the image path for a team name (with or without "Team " prefix), or null
@@ -62,11 +68,15 @@ export const getInitials = (name = '') =>
     .slice(0, 2)
 
 // Randomly split playerIds into teams of ~2, scaling team count with players
-export const assignTeams = (playerIds) => {
+export const assignTeams = (playerIds, numTeams) => {
   const shuffled = shuffleArray([...playerIds])
   const total = shuffled.length
-  // Aim for ~3 per team — keeps teams small enough to discuss, large enough to matter
-  const numTeams = Math.min(TEAM_NAMES.length, Math.max(2, Math.round(total / 3)))
+  // Aim for ~3 per team unless caller specifies a count
+  if (!numTeams) numTeams = Math.min(TEAM_NAMES.length, Math.max(2, Math.round(total / 3)))
+
+  // Randomly pick numTeams identities (name+color pairs stay linked)
+  const indices = shuffleArray(TEAM_NAMES.map((_, i) => i)).slice(0, numTeams)
+
   const teams = {}
   const baseSize = Math.floor(total / numTeams)
   const extras = total % numTeams
@@ -75,9 +85,10 @@ export const assignTeams = (playerIds) => {
     const size = baseSize + (t < extras ? 1 : 0)
     const members = shuffled.slice(idx, idx + size)
     idx += size
+    const nameIdx = indices[t]
     teams[`team_${t}`] = {
-      name: `Team ${TEAM_NAMES[t]}`,
-      color: TEAM_COLORS[t],
+      name: `Team ${TEAM_NAMES[nameIdx]}`,
+      color: TEAM_COLORS[nameIdx],
       memberIds: members,
       score: 0,
     }
