@@ -253,7 +253,9 @@ export default function App() {
   return (
     <div className="game-bg">
       <BackgroundLayer />
-      <Screen {...commonProps} />
+      <div className="mx-auto w-full" style={{ maxWidth: '1200px', height: '100%' }}>
+        <Screen {...commonProps} />
+      </div>
 
       {/* Floating exit button for in-game phases */}
       {inGamePhase && (
@@ -264,5 +266,6 @@ export default function App() {
         />
       )}
     </div>
+
   )
 }
