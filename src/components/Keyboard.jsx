@@ -4,9 +4,9 @@ const ROWS = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM']
 
 export default function Keyboard({ guessedLetters = {}, wrongLetters = {}, onGuess, disabled = false }) {
   return (
-    <div className="w-full space-y-1.5">
+    <div className="w-full space-y-1">
       {ROWS.map((row) => (
-        <div key={row} className="flex justify-center gap-1">
+        <div key={row} className="flex justify-center gap-0.5 lg:gap-1">
           {row.split('').map((letter) => {
             const isCorrect = !!guessedLetters[letter]
             const isWrong = !!wrongLetters[letter]
@@ -18,7 +18,7 @@ export default function Keyboard({ guessedLetters = {}, wrongLetters = {}, onGue
                 onClick={() => onGuess(letter)}
                 disabled={disabled || isUsed}
                 className={`
-                  w-9 h-10 rounded-lg font-bold text-sm transition-all duration-150
+                  w-7 h-8 lg:w-9 lg:h-10 rounded-md lg:rounded-lg font-bold text-xs lg:text-sm transition-all duration-150
                   ${isCorrect
                     ? 'bg-emerald-500 text-white cursor-not-allowed'
                     : isWrong

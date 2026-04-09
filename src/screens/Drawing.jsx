@@ -364,7 +364,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
       {/* Top bar */}
       <div
-        className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
+        className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 flex-shrink-0"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)' }}
       >
         {/* Round */}
@@ -443,13 +443,13 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
       {/* Main area */}
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
 
-        {/* Canvas area */}
-        <div className="flex-1 flex flex-col p-3 gap-2 min-h-0">
+        {/* Canvas area — capped on mobile, fills width on desktop */}
+        <div className="flex-shrink-0 h-[44dvh] lg:h-auto lg:flex-1 flex flex-col p-2 lg:p-3 gap-1.5 lg:gap-2 min-h-0">
 
           {/* Context banner */}
           {isHost ? (
             /* Host sees the word clearly — they're monitoring, not playing */
-            <div className="flex items-center justify-between px-4 py-2.5 rounded-xl flex-shrink-0"
+            <div className="flex items-center justify-between px-3 py-2 lg:px-4 lg:py-2.5 rounded-xl flex-shrink-0"
               style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
               <div>
                 <p className="text-amber-400/50 text-[10px] uppercase tracking-widest font-semibold mb-0.5">The word</p>
@@ -463,7 +463,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
           ) : isDrawer ? (
             <div
               className="flex items-center justify-between px-4 py-2.5 rounded-xl flex-shrink-0 w-full select-none cursor-pointer transition-all"
-              style={{ background: wordRevealed ? 'rgba(0,177,79,0.12)' : 'rgba(0,177,79,0.06)', border: `1px solid ${wordRevealed ? 'rgba(0,177,79,0.35)' : 'rgba(0,177,79,0.15)'}` }}
+              style={{ background: wordRevealed ? 'rgba(0,177,79,0.12)' : 'rgba(0,177,79,0.06)', border: `1px solid ${wordRevealed ? 'rgba(0,177,79,0.35)' : 'rgba(0,177,79,0.15)'}`, padding: 'clamp(8px,2vw,10px) clamp(12px,3vw,16px)' }}
               onPointerDown={() => setWordRevealed(true)}
               onPointerUp={() => setWordRevealed(false)}
               onPointerLeave={() => setWordRevealed(false)}
@@ -525,7 +525,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
           {/* Canvas */}
           <div
-            className="flex-1 min-h-[200px] rounded-2xl overflow-hidden"
+            className="flex-1 min-h-[120px] rounded-2xl overflow-hidden"
             style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
           >
             <DrawingCanvas
@@ -601,15 +601,15 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
           )}
         </div>
 
-        {/* Right panel */}
+        {/* Right panel — fills remaining height on mobile, fixed width on desktop */}
         <div
-          className="w-full lg:w-80 flex flex-col flex-shrink-0 min-h-0"
+          className="flex-1 min-h-0 flex flex-col lg:flex-shrink-0 lg:w-80"
           style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', borderTop: '1px solid rgba(255,255,255,0.05)' }}
         >
 
           {/* ── HOST MONITOR SECTION ── */}
           {isHost ? (
-            <div className="flex-shrink-0 p-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex-shrink-0 p-2 lg:p-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-amber-400 text-xs">⚙</span>
                 <p className="text-amber-400/60 text-xs font-semibold uppercase tracking-widest">Host Monitor</p>
@@ -669,7 +669,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             </div>
           ) : !isOnDrawingTeam ? (
             <div
-              className="flex-shrink-0 p-3 space-y-2"
+              className="flex-shrink-0 p-2 lg:p-3 space-y-1.5 lg:space-y-2"
               style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
             >
               {/* My team's role badge */}
