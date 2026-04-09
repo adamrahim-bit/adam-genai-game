@@ -11,7 +11,7 @@ const HOW_TO = [
   { step: '04', text: 'Guess by letter (hangman) or type the full word — your call' },
 ]
 
-const TIMER_OPTIONS = [60, 90, 120]
+const TIMER_OPTIONS = [120, 180, 240]
 
 export default function Lobby({ playerId, roomCode, gameState, isHost, exitRoom, exitRoomAsHost, deleteRoom }) {
   const [copied, setCopied] = useState(false)
@@ -21,7 +21,7 @@ export default function Lobby({ playerId, roomCode, gameState, isHost, exitRoom,
   const players = Object.entries(gameState?.players || {})
   const playerCount = players.length
   const canStart = playerCount >= 2
-  const roundDuration = gameState?.roundDuration || 90
+  const roundDuration = gameState?.roundDuration || 240
 
   const setRoundDuration = (s) => update(ref(db, `rooms/${roomCode}`), { roundDuration: s })
 
@@ -97,7 +97,7 @@ export default function Lobby({ playerId, roomCode, gameState, isHost, exitRoom,
                   style={roundDuration === s
                     ? { background: 'rgba(0,177,79,0.2)', color: '#00B14F', border: '1px solid rgba(0,177,79,0.4)' }
                     : { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  {s}s
+                  {Math.floor(s / 60)}m
                 </button>
               ))}
             </div>

@@ -11,7 +11,8 @@ import Chat from '../components/Chat'
 
 const COLORS = ['#000000', '#ffffff', '#ef4444', '#3b82f6', '#00B14F', '#eab308', '#f97316', '#a855f7', '#06b6d4', '#6b7280']
 const BRUSH_SIZES = [3, 7, 14]
-const DEFAULT_ROUND_TIME = 90
+const DEFAULT_ROUND_TIME = 240
+const PREP_TIME = 15           // seconds drawer studies word before guessing opens
 const MAX_WRONG = 3
 
 const POWER_CARDS = [
@@ -33,7 +34,10 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const [cardPickTarget, setCardPickTarget] = useState(null) // cardId awaiting target team pick
   const [cardToast, setCardToast] = useState(null)           // { msg, color }
   const [isLocked, setIsLocked] = useState(false)
-  const [showRoleNudge, setShowRoleNudge] = useState(true)
+  const [inPrepPhase, setInPrepPhase] = useState(true)
+  const [prepCountdown, setPrepCountdown] = useState(PREP_TIME)
+  const [showRoleNudge, setShowRoleNudge] = useState(false)
+  const roleNudgeShownRef = useRef(false)
   const advancedRef = useRef(false)
   const lastCardRef = useRef(null)
 
@@ -66,27 +70,51 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const drawer = players[drawerId]
   const drawingTeam = teams[drawingTeamId]
 
-  // Timer — pauses when timerPaused is set, resumes from timerPausedAt offset
+  // Timer — handles 15s prep phase then main countdown. Pauses respect timerPausedOffset.
   useEffect(() => {
     advancedRef.current = false
-    if (isPaused) return  // freeze display while paused
+    roleNudgeShownRef.current = false
+    setInPrepPhase(true)
+    setPrepCountdown(PREP_TIME)
+    setShowRoleNudge(false)
+
+    if (isPaused) return
     const tick = () => {
       const pausedOffset = gameState?.timerPausedOffset || 0
-      const elapsed = (Date.now() - (gameState?.roundStartedAt || Date.now())) / 1000 - pausedOffset
-      setTimeLeft(Math.max(0, Math.ceil(ROUND_TIME - elapsed)))
+      const totalElapsed = (Date.now() - (gameState?.roundStartedAt || Date.now())) / 1000 - pausedOffset
+      if (totalElapsed < PREP_TIME) {
+        setInPrepPhase(true)
+        setPrepCountdown(Math.ceil(PREP_TIME - totalElapsed))
+        setTimeLeft(ROUND_TIME)
+      } else {
+        setInPrepPhase(false)
+        setPrepCountdown(0)
+        const gameElapsed = totalElapsed - PREP_TIME
+        setTimeLeft(Math.max(0, Math.ceil(ROUND_TIME - gameElapsed)))
+      }
     }
     tick()
     const interval = setInterval(tick, 250)
     return () => clearInterval(interval)
   }, [gameState?.roundStartedAt, gameState?.currentRound, isPaused, gameState?.timerPausedOffset, ROUND_TIME])
 
-  // Host auto-advance on timer expiry
+  // Show role nudge once prep ends (not before)
+  useEffect(() => {
+    if (!inPrepPhase && !roleNudgeShownRef.current) {
+      roleNudgeShownRef.current = true
+      setShowRoleNudge(true)
+      const t = setTimeout(() => setShowRoleNudge(false), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [inPrepPhase])
+
+  // Host auto-advance on timer expiry (fires after PREP_TIME + ROUND_TIME total)
   useEffect(() => {
     if (!isHost || !gameState?.roundStartedAt || isPaused) return
     advancedRef.current = false
     const pausedOffset = (gameState?.timerPausedOffset || 0) * 1000
     const elapsed = Date.now() - gameState.roundStartedAt - pausedOffset
-    const remaining = Math.max(0, ROUND_TIME * 1000 - elapsed)
+    const remaining = Math.max(0, (PREP_TIME + ROUND_TIME) * 1000 - elapsed)
     const timer = setTimeout(async () => {
       if (advancedRef.current) return
       advancedRef.current = true
@@ -138,7 +166,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   }
 
   const handleLetterGuess = async (letter) => {
-    if (isOnDrawingTeam || isHost || myTeamDone || isLocked || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
+    if (isOnDrawingTeam || isHost || inPrepPhase || myTeamDone || isLocked || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
     const wordLetters = [...new Set(wordEntry.word.toUpperCase().split('').filter((c) => c !== ' '))]
     const isCorrect = wordLetters.includes(letter)
 
@@ -184,7 +212,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
   const handleFullGuessSubmit = async (e) => {
     e.preventDefault()
-    if (isOnDrawingTeam || isHost || myTeamDone || isLocked || !wordEntry || !fullGuess.trim()) return
+    if (isOnDrawingTeam || isHost || inPrepPhase || myTeamDone || isLocked || !wordEntry || !fullGuess.trim()) return
     const correct = fullGuess.trim().toUpperCase() === wordEntry.word.toUpperCase()
     if (correct) {
       const myUpdated = { ...myProgress, done: true, doneAt: Date.now() }
@@ -1089,6 +1117,55 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 style={exitConfirm === 'delete' ? { background: 'rgba(239,68,68,0.9)', color: 'white' } : { background: 'rgba(0,177,79,0.9)', color: 'white' }}>
                 {exitConfirm === 'delete' ? 'Delete' : 'Leave'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Prep phase overlay (15s before guessing opens) ── */}
+      {inPrepPhase && !isHost && wordEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 animate-fade-in"
+          style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(10px)' }}>
+          <div className="w-full max-w-sm text-center space-y-4 animate-bounce-in"
+            style={{ background: 'rgba(10,20,14,0.97)', border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.4)`, borderRadius: '1.5rem', padding: '2rem' }}>
+
+            {isDrawer ? (
+              <>
+                <div className="text-5xl">🎨</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your word to draw</p>
+                <div className="px-4 py-4 rounded-2xl" style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.35)` }}>
+                  <p className="font-black text-4xl tracking-widest uppercase leading-tight" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
+                  <p className="text-white/35 text-xs mt-2">{wordEntry.category} · {wordEntry.hint}</p>
+                </div>
+                <p className="text-white/50 text-sm">Study the word, then start drawing!</p>
+                <p className="text-white/20 text-xs">No writing or speaking the answer</p>
+              </>
+            ) : isOnDrawingTeam ? (
+              <>
+                <div className="text-5xl">👀</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Get ready</p>
+                <p className="text-white font-black text-2xl leading-tight">Your team is drawing</p>
+                <p className="text-white/40 text-sm">Use <span className="font-bold text-white">💣 Hex</span> and <span className="font-bold text-white">🔒 Lock</span> to sabotage opponents</p>
+              </>
+            ) : (
+              <>
+                <div className="text-5xl">⏳</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Get ready to guess</p>
+                <p className="text-white font-black text-2xl leading-tight">Drawing begins soon</p>
+                <p className="text-white/40 text-sm">
+                  <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span> is studying their word
+                </p>
+                <p className="text-white/20 text-xs">Anyone on your team can guess</p>
+              </>
+            )}
+
+            {/* Countdown ring */}
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center font-black text-xl"
+                style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `2px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.4)`, color: myTeam?.color || '#00B14F' }}>
+                {prepCountdown}
+              </div>
+              <span className="text-white/30 text-xs">seconds until guessing opens</span>
             </div>
           </div>
         </div>
