@@ -31,6 +31,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const [cardPickTarget, setCardPickTarget] = useState(null) // cardId awaiting target team pick
   const [cardToast, setCardToast] = useState(null)           // { msg, color }
   const [isLocked, setIsLocked] = useState(false)
+  const [showRoleNudge, setShowRoleNudge] = useState(true)
   const advancedRef = useRef(false)
   const lastCardRef = useRef(null)
 
@@ -91,6 +92,13 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     }, remaining)
     return () => clearTimeout(timer)
   }, [gameState?.roundStartedAt, gameState?.currentRound, isHost, isPaused, gameState?.timerPausedOffset, ROUND_TIME])
+
+  // Role nudge: show briefly at start of each round/word
+  useEffect(() => {
+    setShowRoleNudge(true)
+    const t = setTimeout(() => setShowRoleNudge(false), 5000)
+    return () => clearTimeout(t)
+  }, [gameState?.currentRound, gameState?.wordIndex])
 
   // Lock card: auto-clear isLocked when lockedUntil expires
   useEffect(() => {
@@ -981,6 +989,69 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Role nudge overlay ── */}
+      {showRoleNudge && !isHost && wordEntry && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-6 animate-fade-in"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setShowRoleNudge(false)}
+        >
+          <div className="w-full max-w-sm animate-bounce-in text-center space-y-4"
+            style={{ background: 'rgba(10,20,14,0.97)', border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.35)`, borderRadius: '1.5rem', padding: '2rem' }}>
+
+            {isDrawer ? (
+              <>
+                <div className="text-5xl mb-2">🎨</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your turn to draw</p>
+                <p className="text-white font-black text-2xl leading-tight">Draw this word!</p>
+                <div className="px-4 py-3 rounded-xl mt-2" style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
+                  <p className="font-black text-3xl tracking-widest uppercase" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
+                  <p className="text-white/30 text-xs mt-1">{wordEntry.category} · {wordEntry.hint}</p>
+                </div>
+                <p className="text-white/20 text-xs">Don't say the word — draw it!</p>
+              </>
+            ) : isAnswerer ? (
+              <>
+                <div className="text-5xl mb-2">🔍</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your turn to guess</p>
+                <p className="text-white font-black text-2xl leading-tight">Guess the drawing!</p>
+                <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <p className="text-white/60 text-sm">
+                    <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span> is drawing
+                  </p>
+                  <p className="text-white/30 text-xs mt-1">Guess letters or type the full word</p>
+                </div>
+                <p className="text-white/20 text-xs">You're the answerer for your team</p>
+              </>
+            ) : isOnDrawingTeam ? (
+              <>
+                <div className="text-5xl mb-2">👀</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">You're on the drawing team</p>
+                <p className="text-white font-black text-2xl leading-tight">Cheer your drawer on!</p>
+                <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <p className="text-white/50 text-sm">Use <span className="font-bold text-white">💣 Hex</span> or <span className="font-bold text-white">🔒 Lock</span> to sabotage guessing teams</p>
+                </div>
+                <p className="text-white/20 text-xs">Spend your team points strategically</p>
+              </>
+            ) : (
+              <>
+                <div className="text-5xl mb-2">⚡</div>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">You're a spectator</p>
+                <p className="text-white font-black text-2xl leading-tight">Play your power cards!</p>
+                <div className="px-4 py-3 rounded-xl mt-2 space-y-1.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <p className="text-white/50 text-sm">🔤 <span className="font-bold text-white">Reveal</span> — show a hidden letter for your team</p>
+                  <p className="text-white/50 text-sm">💣 <span className="font-bold text-white">Hex</span> — add a penalty to opponents</p>
+                  <p className="text-white/50 text-sm">🔒 <span className="font-bold text-white">Lock</span> — freeze an opponent's input</p>
+                </div>
+                <p className="text-white/20 text-xs">You can only play one card per round</p>
+              </>
+            )}
+
+            <p className="text-white/15 text-[10px] mt-2">Tap anywhere to dismiss</p>
+          </div>
+        </div>
       )}
 
       {/* Power card toast */}
