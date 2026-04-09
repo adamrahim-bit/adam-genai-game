@@ -20,7 +20,7 @@ const POWER_CARDS = [
   { id: 'lock',   emoji: '🔒', name: 'Lock',   desc: 'Freeze an opponent\'s input for 6s',   cost: 80, targets: 'opponent' },
 ]
 
-export default function Drawing({ playerId, playerName, roomCode, gameState, isHost, myTeamId, myTeam }) {
+export default function Drawing({ playerId, playerName, roomCode, gameState, isHost, myTeamId, myTeam, exitRoom, exitRoomAsHost, deleteRoom }) {
   const [selectedColor, setSelectedColor] = useState('#000000')
   const [brushSize, setBrushSize] = useState(7)
   const [isEraser, setIsEraser] = useState(false)
@@ -28,6 +28,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const [fullGuess, setFullGuess] = useState('')
   const [guessShake, setGuessShake] = useState(false)
   const [showHostPanel, setShowHostPanel] = useState(false)
+  const [showExitMenu, setShowExitMenu] = useState(false)
+  const [exitConfirm, setExitConfirm] = useState(null) // 'exit' | 'delete'
   const [cardPickTarget, setCardPickTarget] = useState(null) // cardId awaiting target team pick
   const [cardToast, setCardToast] = useState(null)           // { msg, color }
   const [isLocked, setIsLocked] = useState(false)
@@ -395,18 +397,26 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
           </div>
         </div>
 
-        {/* Host panel trigger */}
-        {isHost && (
+        {/* Host gear + Exit menu */}
+        <div className="flex items-center gap-1.5">
+          {isHost && (
+            <button
+              onClick={() => setShowHostPanel(v => !v)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
+              style={{
+                background: showHostPanel ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.07)',
+                border: `1px solid ${showHostPanel ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              }}>
+              <span className="text-sm">{showHostPanel ? '✕' : '⚙'}</span>
+            </button>
+          )}
           <button
-            onClick={() => setShowHostPanel(v => !v)}
+            onClick={() => setShowExitMenu(v => !v)}
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
-            style={{
-              background: showHostPanel ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.07)',
-              border: `1px solid ${showHostPanel ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`,
-            }}>
-            <span className="text-sm">{showHostPanel ? '✕' : '⚙'}</span>
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <span className="text-sm leading-none">≡</span>
           </button>
-        )}
+        </div>
 
         {/* Team scores */}
         <div className="flex items-center gap-2 min-w-[80px] justify-end">
@@ -989,6 +999,71 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Exit menu dropdown ── */}
+      {showExitMenu && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setShowExitMenu(false)} />
+          <div className="fixed top-14 right-4 z-40 rounded-2xl overflow-hidden shadow-2xl animate-slide-up"
+            style={{ background: 'rgba(10,20,14,0.97)', border: '1px solid rgba(255,255,255,0.1)', minWidth: 200, backdropFilter: 'blur(16px)' }}>
+            <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <p className="text-white/30 text-xs uppercase tracking-widest font-semibold">Room options</p>
+            </div>
+            <div className="p-2 space-y-1">
+              <button onClick={() => { setExitConfirm('exit'); setShowExitMenu(false) }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover:bg-white/5 active:scale-95">
+                <span className="text-base">🚪</span>
+                <div>
+                  <p className="text-white/80 text-sm font-semibold">Leave room</p>
+                  <p className="text-white/30 text-xs">{isHost ? 'Host transfers to next player' : 'You exit the game'}</p>
+                </div>
+              </button>
+              {isHost && (
+                <button onClick={() => { setExitConfirm('delete'); setShowExitMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover:bg-red-500/10 active:scale-95">
+                  <span className="text-base">🗑️</span>
+                  <div>
+                    <p className="text-red-400 text-sm font-semibold">Delete room</p>
+                    <p className="text-white/30 text-xs">Ends the game for everyone</p>
+                  </div>
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Exit confirm modal */}
+      {exitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
+          <div className="rounded-2xl p-6 w-full max-w-xs animate-bounce-in"
+            style={{ background: 'rgba(10,20,14,0.98)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <div className="text-center mb-5">
+              <span className="text-4xl">{exitConfirm === 'delete' ? '🗑️' : '🚪'}</span>
+              <h3 className="text-white font-black text-lg mt-3">{exitConfirm === 'delete' ? 'Delete room?' : 'Leave room?'}</h3>
+              <p className="text-white/40 text-sm mt-1">
+                {exitConfirm === 'delete' ? 'This ends the game for all players.' : isHost ? 'Host role transfers to the next player.' : 'You will exit the current game.'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setExitConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.5)' }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setExitConfirm(null)
+                  if (exitConfirm === 'delete') await deleteRoom()
+                  else await (isHost ? exitRoomAsHost() : exitRoom())
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-black active:scale-95"
+                style={exitConfirm === 'delete' ? { background: 'rgba(239,68,68,0.9)', color: 'white' } : { background: 'rgba(0,177,79,0.9)', color: 'white' }}>
+                {exitConfirm === 'delete' ? 'Delete' : 'Leave'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Role nudge overlay ── */}

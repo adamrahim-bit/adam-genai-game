@@ -248,7 +248,7 @@ export default function App() {
   }
 
   const Screen = screens[phase] || Home
-  const inGamePhase = inGame && phase !== 'home' && phase !== 'lobby'
+  const inGamePhase = inGame && phase !== 'home' && phase !== 'lobby' && phase !== 'drawing'
 
   return (
     <div className="game-bg">
