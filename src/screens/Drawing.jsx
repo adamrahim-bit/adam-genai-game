@@ -352,7 +352,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     : POWER_CARDS
 
   return (
-    <div className="relative min-h-screen flex flex-col" style={{ maxHeight: '100dvh', overflow: 'hidden' }}>
+    <div className="relative flex flex-col" style={{ height: '100dvh', overflow: 'hidden' }}>
 
       {/* Top bar */}
       <div
@@ -928,8 +928,6 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 </div>
               )}
             </div>
-          )}
-
           )}
 
           {/* ── CHAT SECTION ── */}
