@@ -538,7 +538,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-shrink-0"
               style={{ background: 'rgba(0,177,79,0.08)', border: '1px solid rgba(0,177,79,0.2)' }}>
               <span className="text-sm">🎨</span>
-              <p className="text-white/50 text-xs font-semibold">Draw the word — don't write or say it!</p>
+              <p className="text-white/50 text-xs font-semibold">Sketch it out — no writing or speaking!</p>
             </div>
           )}
 
@@ -1129,7 +1129,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   <p className="font-black text-3xl tracking-widest uppercase" style={{ color: myTeam?.color || '#00B14F' }}>{wordEntry.word}</p>
                   <p className="text-white/30 text-xs mt-1">{wordEntry.category} · {wordEntry.hint}</p>
                 </div>
-                <p className="text-white/20 text-xs">Don't say the word — draw it!</p>
+                <p className="text-white/20 text-xs">Sketch it out — no writing or speaking the answer!</p>
               </>
             ) : isAnswerer ? (
               <>
