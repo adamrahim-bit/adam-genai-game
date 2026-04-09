@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { db } from '../firebase'
-import { ref, update, remove } from 'firebase/database'
+import { ref, update, remove, increment } from 'firebase/database'
 import { WORD_LIST, getRandomWordIndex } from '../data/wordList'
 import { getTeamImage } from '../utils'
 import DrawingCanvas from '../components/DrawingCanvas'
@@ -138,7 +138,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   }
 
   const handleLetterGuess = async (letter) => {
-    if (!isAnswerer || myTeamDone || isLocked || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
+    if (isOnDrawingTeam || isHost || myTeamDone || isLocked || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
     const wordLetters = [...new Set(wordEntry.word.toUpperCase().split('').filter((c) => c !== ' '))]
     const isCorrect = wordLetters.includes(letter)
 
@@ -159,11 +159,12 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
       }
       await update(ref(db, `rooms/${roomCode}`), updates)
     } else {
+      // Use increment so concurrent wrong-letter presses from multiple teammates are counted correctly
       const newWrongCount = wrongCount + 1
       const myUpdated = { ...myProgress, wrongGuesses: newWrongCount }
       const updates = {
         [`teamProgress/${myTeamId}/wrongLetters/${letter}`]: true,
-        [`teamProgress/${myTeamId}/wrongGuesses`]: newWrongCount,
+        [`teamProgress/${myTeamId}/wrongGuesses`]: increment(1),
       }
       if (newWrongCount >= MAX_WRONG) {
         myUpdated.done = true
@@ -183,7 +184,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
   const handleFullGuessSubmit = async (e) => {
     e.preventDefault()
-    if (!isAnswerer || myTeamDone || isLocked || !wordEntry || !fullGuess.trim()) return
+    if (isOnDrawingTeam || isHost || myTeamDone || isLocked || !wordEntry || !fullGuess.trim()) return
     const correct = fullGuess.trim().toUpperCase() === wordEntry.word.toUpperCase()
     if (correct) {
       const myUpdated = { ...myProgress, done: true, doneAt: Date.now() }
@@ -203,7 +204,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
       // Wrong full-word guess: deduct a heart
       const newWrongCount = wrongCount + 1
       const myUpdated = { ...myProgress, wrongGuesses: newWrongCount }
-      const updates = { [`teamProgress/${myTeamId}/wrongGuesses`]: newWrongCount }
+      const updates = { [`teamProgress/${myTeamId}/wrongGuesses`]: increment(1) }
       if (newWrongCount >= MAX_WRONG) {
         myUpdated.done = true
         myUpdated.failed = true
@@ -351,7 +352,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const myTeamAnswerer = myTeamAnswererId ? players[myTeamAnswererId] : null
 
   // Power card roles
-  const isGuessingSpectator = !isHost && !isOnDrawingTeam && !isAnswerer && !!myTeamId && !myTeamDone
+  const isGuessingSpectator = !isHost && !isOnDrawingTeam && !!myTeamId && !myTeamDone
   const isDrawingSpectator  = !isHost && isOnDrawingTeam && !isDrawer && !!myTeamId
   const usedCard = !!(gameState?.spectatorCardUsed?.[playerId])
   const myTeamScore = myTeam?.score || 0
@@ -664,7 +665,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                         ) : (
                           <span className="text-[10px] font-bold tabular-nums"
                             style={{ color: wrongN === 0 ? 'rgba(255,255,255,0.3)' : wrongN === 1 ? '#f59e0b' : '#ef4444' }}>
-                            {250 - wrongN * 50} pts · {answererName}
+                            {250 - wrongN * 50} pts
                           </span>
                         )}
                       </div>
@@ -693,25 +694,14 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             >
               {/* Role action banner */}
               {!myTeamDone && (
-                isAnswerer ? (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                    style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.12)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
-                    <span className="text-base">🔍</span>
-                    <div className="min-w-0">
-                      <p className="font-black text-xs" style={{ color: myTeam?.color }}>Your turn to guess!</p>
-                      <p className="text-white/40 text-[10px] leading-tight">Tap letters or type the full word below</p>
-                    </div>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                  style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.12)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
+                  <span className="text-base">🔍</span>
+                  <div className="min-w-0">
+                    <p className="font-black text-xs" style={{ color: myTeam?.color }}>Everyone guess together!</p>
+                    <p className="text-white/40 text-[10px] leading-tight">Tap letters or type the full word</p>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span className="text-base">⚡</span>
-                    <div className="min-w-0">
-                      <p className="text-white/70 font-black text-xs">{myTeamAnswerer?.name} is answering</p>
-                      <p className="text-white/30 text-[10px] leading-tight">Chat to help · Use power cards below</p>
-                    </div>
-                  </div>
-                )
+                </div>
               )}
 
               {/* My team's role badge */}
@@ -724,14 +714,10 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   ) : (
                     <span className="ml-auto text-[10px] font-bold" style={{ color: myTeam?.color }}>Guessed it!</span>
                   )
-                ) : isAnswerer ? (
+                ) : (
                   <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full"
                     style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.15)`, color: myTeam?.color }}>
-                    Answering
-                  </span>
-                ) : (
-                  <span className="ml-auto text-white/25 text-[10px]">
-                    Spectator
+                    Guessing
                   </span>
                 )}
               </div>
@@ -744,8 +730,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 wrongCount={wrongCount}
               />
 
-              {/* Answerer controls */}
-              {isAnswerer && !myTeamDone && (
+              {/* Guessing controls — open to all team members */}
+              {!isOnDrawingTeam && !myTeamDone && (
                 <>
                   {/* Lock banner */}
                   {isLocked && (
@@ -861,7 +847,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                     </div>
                   )}
 
-                  <p className="text-white/20 text-[10px] text-center">Chat below to help {myTeamAnswerer?.name}</p>
+                  <p className="text-white/20 text-[10px] text-center">Chat with your team below</p>
                 </div>
               )}
             </div>
@@ -879,8 +865,6 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   const gl = prog.guessedLetters || {}
                   const wl = prog.wrongLetters || {}
                   const wrongN = prog.wrongGuesses || Object.keys(wl).length
-                  const answererUid = answerers[tid]
-                  const answererName = players[answererUid]?.name || '?'
                   return (
                     <div key={tid} className="rounded-xl px-3 py-2"
                       style={{ background: `rgba(${hexToRgb(team.color)}, 0.08)`, border: `1px solid rgba(${hexToRgb(team.color)}, 0.2)` }}>
@@ -1131,18 +1115,18 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 </div>
                 <p className="text-white/20 text-xs">Sketch it out — no writing or speaking the answer!</p>
               </>
-            ) : isAnswerer ? (
+            ) : !isOnDrawingTeam ? (
               <>
                 <div className="text-5xl mb-2">🔍</div>
-                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Your turn to guess</p>
-                <p className="text-white font-black text-2xl leading-tight">Guess the drawing!</p>
+                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Guess together!</p>
+                <p className="text-white font-black text-2xl leading-tight">What's being drawn?</p>
                 <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
                   <p className="text-white/60 text-sm">
                     <span className="font-bold" style={{ color: drawingTeam?.color }}>{drawingTeam?.name}</span> is drawing
                   </p>
-                  <p className="text-white/30 text-xs mt-1">Guess letters or type the full word</p>
+                  <p className="text-white/30 text-xs mt-1">Everyone on your team can guess — tap letters or type the full word</p>
                 </div>
-                <p className="text-white/20 text-xs">You're the answerer for your team</p>
+                <p className="text-white/20 text-xs">First team to guess wins the most points</p>
               </>
             ) : isOnDrawingTeam ? (
               <>
@@ -1153,18 +1137,6 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   <p className="text-white/50 text-sm">Use <span className="font-bold text-white">💣 Hex</span> or <span className="font-bold text-white">🔒 Lock</span> to sabotage guessing teams</p>
                 </div>
                 <p className="text-white/20 text-xs">Spend your team points strategically</p>
-              </>
-            ) : (
-              <>
-                <div className="text-5xl mb-2">⚡</div>
-                <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">You're a spectator</p>
-                <p className="text-white font-black text-2xl leading-tight">Play your power cards!</p>
-                <div className="px-4 py-3 rounded-xl mt-2 space-y-1.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <p className="text-white/50 text-sm">🔤 <span className="font-bold text-white">Reveal</span> — show a hidden letter for your team</p>
-                  <p className="text-white/50 text-sm">💣 <span className="font-bold text-white">Hex</span> — add a penalty to opponents</p>
-                  <p className="text-white/50 text-sm">🔒 <span className="font-bold text-white">Lock</span> — freeze an opponent's input</p>
-                </div>
-                <p className="text-white/20 text-xs">You can only play one card per round</p>
               </>
             )}
 
