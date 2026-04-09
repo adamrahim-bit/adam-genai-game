@@ -16,9 +16,8 @@ const PREP_TIME = 15           // seconds drawer studies word before guessing op
 const MAX_WRONG = 3
 
 const POWER_CARDS = [
-  { id: 'reveal', emoji: '🔤', name: 'Reveal', desc: 'Expose a hidden letter for your team', cost: 50, targets: 'self' },
-  { id: 'hex',    emoji: '💣', name: 'Hex',    desc: '+1 wrong penalty on an opponent',      cost: 40, targets: 'opponent' },
-  { id: 'lock',   emoji: '🔒', name: 'Lock',   desc: 'Freeze an opponent\'s input for 6s',   cost: 80, targets: 'opponent' },
+  { id: 'reveal',   emoji: '🔤', name: 'Reveal',   desc: 'Auto-reveal a hidden letter for your team', cost: 50, targets: 'self'   },
+  { id: 'sabotage', emoji: '💣', name: 'Sabotage', desc: 'Add +1 wrong guess to a specific player\'s team', cost: 60, targets: 'player' },
 ]
 
 export default function Drawing({ playerId, playerName, roomCode, gameState, isHost, myTeamId, myTeam, exitRoom, exitRoomAsHost, deleteRoom }) {
@@ -145,8 +144,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     if (!lca || lca.at === lastCardRef.current) return
     lastCardRef.current = lca.at
     const msgs = {
-      hex:  `💣 ${lca.byTeamName} hexed you! −1 guess`,
-      lock: `🔒 ${lca.byTeamName} locked your input for 6s!`,
+      sabotage: `💣 ${lca.byTeamName} sabotaged your team! −1 guess`,
     }
     showCardToast(msgs[lca.cardId] || '⚡ Power card!', '#ef4444')
   }, [myProgress.lastCardAgainst])
@@ -315,7 +313,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     setShowHostPanel(false)
   }
 
-  const handlePlayCard = async (cardId, targetTeamId) => {
+  // targetId is myTeamId for 'reveal', or a playerId for 'sabotage'
+  const handlePlayCard = async (cardId, targetId) => {
     const card = POWER_CARDS.find((c) => c.id === cardId)
     if (!card || usedCard || myTeamScore < card.cost) return
     const updates = {}
@@ -326,7 +325,6 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
       if (unguessed.length === 0) return
       const letter = unguessed[Math.floor(Math.random() * unguessed.length)]
       updates[`teamProgress/${myTeamId}/guessedLetters/${letter}`] = true
-      // Check if this completes the word
       const newGuessed = { ...guessedLetters, [letter]: true }
       if (wordLetters.every((l) => newGuessed[l])) {
         updates[`teamProgress/${myTeamId}/done`] = true
@@ -341,10 +339,14 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
       }
       showCardToast(`🔤 Revealed "${letter}" for your team!`, myTeam?.color)
 
-    } else if (cardId === 'hex') {
+    } else if (cardId === 'sabotage') {
+      // targetId is a playerId — resolve their team
+      const targetTeamId = Object.entries(teams).find(([, t]) => t.memberIds?.includes(targetId))?.[0]
+      if (!targetTeamId) return
       const targetProg = teamProgress[targetTeamId] || {}
+      const targetPlayer = players[targetId]
       const newWrong = (targetProg.wrongGuesses || 0) + 1
-      updates[`teamProgress/${targetTeamId}/wrongGuesses`] = newWrong
+      updates[`teamProgress/${targetTeamId}/wrongGuesses`] = increment(1)
       if (newWrong >= MAX_WRONG) {
         updates[`teamProgress/${targetTeamId}/done`] = true
         updates[`teamProgress/${targetTeamId}/failed`] = true
@@ -356,13 +358,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
           updates.roundWon = guessingIds.some((tid) => merged[tid]?.done && !merged[tid]?.failed)
         }
       }
-      updates[`teamProgress/${targetTeamId}/lastCardAgainst`] = { cardId: 'hex', byTeamName: myTeam?.name, at: Date.now() }
-      showCardToast(`💣 Hexed ${teams[targetTeamId]?.name}!`, myTeam?.color)
-
-    } else if (cardId === 'lock') {
-      updates[`teamProgress/${targetTeamId}/lockedUntil`] = Date.now() + 6000
-      updates[`teamProgress/${targetTeamId}/lastCardAgainst`] = { cardId: 'lock', byTeamName: myTeam?.name, at: Date.now() }
-      showCardToast(`🔒 Locked ${teams[targetTeamId]?.name} for 6s!`, myTeam?.color)
+      updates[`teamProgress/${targetTeamId}/lastCardAgainst`] = { cardId: 'sabotage', byTeamName: myTeam?.name, at: Date.now() }
+      showCardToast(`💣 Sabotaged ${targetPlayer?.name || 'them'}!`, myTeam?.color)
     }
 
     updates[`teams/${myTeamId}/score`] = Math.max(0, myTeamScore - card.cost)
@@ -387,8 +384,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
   // Guessing spectators get all 3; drawing spectators can only sabotage (no Reveal)
   const availableCards = isDrawingSpectator
-    ? POWER_CARDS.filter((c) => c.targets === 'opponent')
-    : POWER_CARDS
+    ? POWER_CARDS.filter((c) => c.id === 'sabotage')
+    : POWER_CARDS.filter((c) => c.id === 'reveal')
 
   return (
     <div className="flex flex-col" style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '1200px', height: '100dvh', overflow: 'hidden' }}>
@@ -811,7 +808,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 <div className="space-y-2">
                   <p className="text-white/20 text-[10px] uppercase tracking-widest font-semibold">Power Cards</p>
 
-                  {/* Card tray */}
+                  {/* Card tray — Reveal fires directly, no target needed */}
                   <div className="flex gap-1.5">
                     {availableCards.map((card) => {
                       const canAfford = myTeamScore >= card.cost
@@ -822,18 +819,11 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                           key={card.id}
                           disabled={disabled}
                           title={card.desc}
-                          onClick={() => {
-                            if (card.targets === 'self') handlePlayCard(card.id, myTeamId)
-                            else setCardPickTarget(cardPickTarget === card.id ? null : card.id)
-                          }}
+                          onClick={() => handlePlayCard(card.id, myTeamId)}
                           className="flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all active:scale-95 disabled:opacity-30"
                           style={{
-                            background: cardPickTarget === card.id
-                              ? `rgba(${hexToRgb(teamColor)}, 0.2)`
-                              : disabled ? 'rgba(255,255,255,0.03)' : `rgba(${hexToRgb(teamColor)}, 0.1)`,
-                            border: `1px solid ${cardPickTarget === card.id
-                              ? `rgba(${hexToRgb(teamColor)}, 0.5)`
-                              : disabled ? 'rgba(255,255,255,0.06)' : `rgba(${hexToRgb(teamColor)}, 0.25)`}`,
+                            background: disabled ? 'rgba(255,255,255,0.03)' : `rgba(${hexToRgb(teamColor)}, 0.1)`,
+                            border: `1px solid ${disabled ? 'rgba(255,255,255,0.06)' : `rgba(${hexToRgb(teamColor)}, 0.25)`}`,
                           }}
                         >
                           <span className="text-xl leading-none">{card.emoji}</span>
@@ -846,33 +836,6 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
                   {usedCard && (
                     <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>
-                  )}
-
-                  {/* Target team picker */}
-                  {cardPickTarget && (
-                    <div className="rounded-xl overflow-hidden animate-slide-up"
-                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick target</p>
-                      {Object.entries(teams)
-                        .filter(([tid]) => tid !== myTeamId && tid !== drawingTeamId)
-                        .map(([tid, team]) => (
-                          <button
-                            key={tid}
-                            onClick={() => handlePlayCard(cardPickTarget, tid)}
-                            className="w-full flex items-center gap-2 px-3 py-2 transition-all hover:bg-white/5 active:scale-95 text-left"
-                          >
-                            {getTeamImage(team.name)
-                              ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
-                              : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team.color }} />
-                            }
-                            <span className="text-white/60 text-xs font-semibold">{team.name}</span>
-                          </button>
-                        ))}
-                      <button onClick={() => setCardPickTarget(null)}
-                        className="w-full px-3 py-1.5 text-white/25 text-[10px] hover:bg-white/5 text-center transition-all">
-                        Cancel
-                      </button>
-                    </div>
                   )}
 
                   <p className="text-white/20 text-[10px] text-center">Chat with your team below</p>
@@ -944,7 +907,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 </div>
               )}
 
-              {/* Drawing-team spectator power cards (Hex + Lock only) */}
+              {/* Drawing-team spectator power cards — Sabotage, pick a specific person */}
               {isDrawingSpectator && (
                 <div className="space-y-2 mt-3">
                   <p className="text-white/20 text-[10px] uppercase tracking-widest font-semibold">Power Cards</p>
@@ -977,22 +940,34 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                     })}
                   </div>
                   {usedCard && <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>}
+
+                  {/* Player picker — shows individual players on guessing teams */}
                   {cardPickTarget && (
                     <div className="rounded-xl overflow-hidden animate-slide-up"
                       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick target</p>
+                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick a player to sabotage</p>
                       {Object.entries(teams)
                         .filter(([tid]) => tid !== drawingTeamId)
-                        .map(([tid, team]) => (
-                          <button key={tid} onClick={() => handlePlayCard(cardPickTarget, tid)}
-                            className="w-full flex items-center gap-2 px-3 py-2 transition-all hover:bg-white/5 active:scale-95 text-left">
-                            {getTeamImage(team.name)
-                              ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
-                              : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team.color }} />
-                            }
-                            <span className="text-white/60 text-xs font-semibold">{team.name}</span>
-                          </button>
-                        ))}
+                        .flatMap(([tid, team]) =>
+                          (team.memberIds || []).map((pid) => ({ pid, team }))
+                        )
+                        .map(({ pid, team }) => {
+                          const p = players[pid]
+                          if (!p) return null
+                          return (
+                            <button key={pid} onClick={() => handlePlayCard(cardPickTarget, pid)}
+                              className="w-full flex items-center gap-2 px-3 py-2 transition-all hover:bg-white/5 active:scale-95 text-left">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0"
+                                style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}>
+                                {p.name?.[0]?.toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-white/70 text-xs font-semibold">{p.name}</span>
+                                <span className="text-white/25 text-[10px] ml-1.5">{team.name}</span>
+                              </div>
+                            </button>
+                          )
+                        })}
                       <button onClick={() => setCardPickTarget(null)}
                         className="w-full px-3 py-1.5 text-white/25 text-[10px] hover:bg-white/5 text-center transition-all">
                         Cancel
