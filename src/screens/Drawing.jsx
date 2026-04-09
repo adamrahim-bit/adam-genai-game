@@ -16,8 +16,8 @@ const PREP_TIME = 15           // seconds drawer studies word before guessing op
 const MAX_WRONG = 3
 
 const POWER_CARDS = [
-  { id: 'reveal',   emoji: '🔤', name: 'Reveal',   desc: 'Auto-reveal a hidden letter for your team', cost: 50, targets: 'self'   },
-  { id: 'sabotage', emoji: '💣', name: 'Sabotage', desc: 'Add +1 wrong guess to a specific player\'s team', cost: 60, targets: 'player' },
+  { id: 'hint',     emoji: '💡', name: 'Hint',     desc: 'Reveal the word hint',                       cost: 50, targets: 'self'   },
+  { id: 'sabotage', emoji: '💣', name: 'Sabotage', desc: 'Add +1 wrong guess to a specific player',    cost: 60, targets: 'player' },
 ]
 
 export default function Drawing({ playerId, playerName, roomCode, gameState, isHost, myTeamId, myTeam, exitRoom, exitRoomAsHost, deleteRoom }) {
@@ -30,9 +30,9 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const [showHostPanel, setShowHostPanel] = useState(false)
   const [showExitMenu, setShowExitMenu] = useState(false)
   const [exitConfirm, setExitConfirm] = useState(null) // 'exit' | 'delete'
-  const [cardPickTarget, setCardPickTarget] = useState(null) // cardId awaiting target team pick
+  const [cardPickTarget, setCardPickTarget] = useState(null) // cardId awaiting player pick
   const [cardToast, setCardToast] = useState(null)           // { msg, color }
-  const [isLocked, setIsLocked] = useState(false)
+  const [hintRevealed, setHintRevealed] = useState(false)
   const [inPrepPhase, setInPrepPhase] = useState(true)
   const [prepCountdown, setPrepCountdown] = useState(PREP_TIME)
   const [showRoleNudge, setShowRoleNudge] = useState(false)
@@ -55,16 +55,18 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   // Word only visible while held down — releases hide it again
   const [wordRevealed, setWordRevealed] = useState(false)
   useEffect(() => { setWordRevealed(false) }, [gameState?.wordIndex])
+  useEffect(() => { setHintRevealed(false) }, [gameState?.wordIndex, gameState?.currentRound])
   const isOnDrawingTeam = myTeamId === drawingTeamId
   const isAnswerer = !isOnDrawingTeam && answerers[myTeamId] === playerId
 
-  // My team's guessing progress
-  const myProgress = myTeamId ? (teamProgress[myTeamId] || {}) : {}
+  // Individual progress — each player tracks their own guesses
+  const myTeamProgress = myTeamId ? (teamProgress[myTeamId] || {}) : {}
+  const myProgress = myTeamId ? (myTeamProgress.members?.[playerId] || {}) : {}
   const guessedLetters = myProgress.guessedLetters || {}
   const wrongLetters = myProgress.wrongLetters || {}
-  // wrongGuesses tracks ALL wrong attempts: letters + full-word misses
   const wrongCount = myProgress.wrongGuesses || 0
-  const myTeamDone = myProgress.done || false
+  const myPersonalDone = myProgress.done || false   // this player finished
+  const myTeamDone = myTeamProgress.done || false   // ALL members of team finished
 
   const drawer = players[drawerId]
   const drawingTeam = teams[drawingTeamId]
@@ -129,22 +131,13 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     return () => clearTimeout(t)
   }, [gameState?.currentRound, gameState?.wordIndex])
 
-  // Lock card: auto-clear isLocked when lockedUntil expires
-  useEffect(() => {
-    const lockedUntil = myProgress.lockedUntil
-    if (!lockedUntil || Date.now() >= lockedUntil) { setIsLocked(false); return }
-    setIsLocked(true)
-    const t = setTimeout(() => setIsLocked(false), lockedUntil - Date.now())
-    return () => clearTimeout(t)
-  }, [myProgress.lockedUntil])
-
-  // Toast when a card is played against my team
+  // Toast when a card is played against this player
   useEffect(() => {
     const lca = myProgress.lastCardAgainst
     if (!lca || lca.at === lastCardRef.current) return
     lastCardRef.current = lca.at
     const msgs = {
-      sabotage: `💣 ${lca.byTeamName} sabotaged your team! −1 guess`,
+      sabotage: `💣 ${lca.byTeamName} sabotaged you! −1 guess`,
     }
     showCardToast(msgs[lca.cardId] || '⚡ Power card!', '#ef4444')
   }, [myProgress.lastCardAgainst])
@@ -154,54 +147,77 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     setTimeout(() => setCardToast(null), 3000)
   }
 
-  // After any team finishes, check if all guessing teams are done → end round
-  const checkRoundEnd = (myUpdatedProgress) => {
+  const memberPath = `teamProgress/${myTeamId}/members/${playerId}`
+
+  // Returns true if every member of myTeam is done, given this player's updated state
+  const checkTeamDone = (myPersonalUpdated) => {
+    const teamMembers = teams[myTeamId]?.memberIds || []
+    return teamMembers.every((pid) => {
+      if (pid === playerId) return myPersonalUpdated.done
+      return !!(myTeamProgress.members?.[pid]?.done)
+    })
+  }
+
+  // Returns { allDone, anyWon } across all guessing teams, given myTeam's done status
+  const checkRoundEnd = (myTeamNowDone = false) => {
     const guessingTeamIds = Object.keys(teams).filter((tid) => tid !== drawingTeamId)
-    const merged = { ...teamProgress, [myTeamId]: myUpdatedProgress }
-    const allDone = guessingTeamIds.every((tid) => merged[tid]?.done)
-    const anyWon = guessingTeamIds.some((tid) => merged[tid]?.done && !merged[tid]?.failed)
+    const allDone = guessingTeamIds.every((tid) => {
+      if (tid === myTeamId) return myTeamNowDone
+      return !!(teamProgress[tid]?.done)
+    })
+    const anyWon = guessingTeamIds.some((tid) => {
+      const members = teams[tid]?.memberIds || []
+      const prog = teamProgress[tid] || {}
+      return members.some((pid) => prog.members?.[pid]?.done && !prog.members?.[pid]?.failed)
+    })
     return { allDone, anyWon }
   }
 
   const handleLetterGuess = async (letter) => {
-    if (isOnDrawingTeam || isHost || inPrepPhase || myTeamDone || isLocked || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
+    if (isOnDrawingTeam || isHost || inPrepPhase || myPersonalDone || guessedLetters[letter] || wrongLetters[letter] || !wordEntry) return
     const wordLetters = [...new Set(wordEntry.word.toUpperCase().split('').filter((c) => c !== ' '))]
     const isCorrect = wordLetters.includes(letter)
 
     if (isCorrect) {
       const newGuessed = { ...guessedLetters, [letter]: true }
       const allGuessed = wordLetters.every((l) => newGuessed[l])
-      const updates = { [`teamProgress/${myTeamId}/guessedLetters/${letter}`]: true }
+      const updates = { [`${memberPath}/guessedLetters/${letter}`]: true }
       if (allGuessed) {
-        const myUpdated = { ...myProgress, done: true, doneAt: Date.now() }
-        updates[`teamProgress/${myTeamId}/done`] = true
-        updates[`teamProgress/${myTeamId}/doneAt`] = myUpdated.doneAt
-        const { allDone, anyWon } = checkRoundEnd(myUpdated)
-        if (allDone) {
-          updates.phase = 'roundreveal'
-          updates.roundWon = anyWon
-          advancedRef.current = true
+        const earnedScore = Math.max(0, 250 - 50 * wrongCount)
+        updates[`${memberPath}/done`] = true
+        updates[`${memberPath}/doneAt`] = Date.now()
+        updates[`${memberPath}/score`] = earnedScore
+        updates[`teams/${myTeamId}/score`] = increment(earnedScore)
+        const teamNowDone = checkTeamDone({ done: true })
+        if (teamNowDone) {
+          updates[`teamProgress/${myTeamId}/done`] = true
+          const { allDone, anyWon } = checkRoundEnd(true)
+          if (allDone && !advancedRef.current) {
+            advancedRef.current = true
+            updates.phase = 'roundreveal'
+            updates.roundWon = anyWon
+          }
         }
       }
       await update(ref(db, `rooms/${roomCode}`), updates)
     } else {
-      // Use increment so concurrent wrong-letter presses from multiple teammates are counted correctly
       const newWrongCount = wrongCount + 1
-      const myUpdated = { ...myProgress, wrongGuesses: newWrongCount }
       const updates = {
-        [`teamProgress/${myTeamId}/wrongLetters/${letter}`]: true,
-        [`teamProgress/${myTeamId}/wrongGuesses`]: increment(1),
+        [`${memberPath}/wrongLetters/${letter}`]: true,
+        [`${memberPath}/wrongGuesses`]: increment(1),
       }
       if (newWrongCount >= MAX_WRONG) {
-        myUpdated.done = true
-        myUpdated.failed = true
-        updates[`teamProgress/${myTeamId}/done`] = true
-        updates[`teamProgress/${myTeamId}/failed`] = true
-        const { allDone, anyWon } = checkRoundEnd(myUpdated)
-        if (allDone) {
-          updates.phase = 'roundreveal'
-          updates.roundWon = anyWon
-          advancedRef.current = true
+        updates[`${memberPath}/done`] = true
+        updates[`${memberPath}/failed`] = true
+        const teamNowDone = checkTeamDone({ done: true })
+        if (teamNowDone) {
+          updates[`teamProgress/${myTeamId}/done`] = true
+          const { allDone, anyWon } = checkRoundEnd(true)
+          if (allDone && !advancedRef.current) {
+            advancedRef.current = true
+            updates.phase = 'roundreveal'
+            updates.roundWon = anyWon
+          }
         }
       }
       await update(ref(db, `rooms/${roomCode}`), updates)
@@ -210,37 +226,43 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
 
   const handleFullGuessSubmit = async (e) => {
     e.preventDefault()
-    if (isOnDrawingTeam || isHost || inPrepPhase || myTeamDone || isLocked || !wordEntry || !fullGuess.trim()) return
+    if (isOnDrawingTeam || isHost || inPrepPhase || myPersonalDone || !wordEntry || !fullGuess.trim()) return
     const correct = fullGuess.trim().toUpperCase() === wordEntry.word.toUpperCase()
     if (correct) {
-      const myUpdated = { ...myProgress, done: true, doneAt: Date.now() }
+      const earnedScore = Math.max(0, 250 - 50 * wrongCount)
       const updates = {
-        [`teamProgress/${myTeamId}/done`]: true,
-        [`teamProgress/${myTeamId}/doneAt`]: myUpdated.doneAt,
+        [`${memberPath}/done`]: true,
+        [`${memberPath}/doneAt`]: Date.now(),
+        [`${memberPath}/score`]: earnedScore,
+        [`teams/${myTeamId}/score`]: increment(earnedScore),
       }
-      const { allDone, anyWon } = checkRoundEnd(myUpdated)
-      if (allDone) {
-        updates.phase = 'roundreveal'
-        updates.roundWon = anyWon
-        advancedRef.current = true
+      const teamNowDone = checkTeamDone({ done: true })
+      if (teamNowDone) {
+        updates[`teamProgress/${myTeamId}/done`] = true
+        const { allDone, anyWon } = checkRoundEnd(true)
+        if (allDone && !advancedRef.current) {
+          advancedRef.current = true
+          updates.phase = 'roundreveal'
+          updates.roundWon = anyWon
+        }
       }
       await update(ref(db, `rooms/${roomCode}`), updates)
       setFullGuess('')
     } else {
-      // Wrong full-word guess: deduct a heart
       const newWrongCount = wrongCount + 1
-      const myUpdated = { ...myProgress, wrongGuesses: newWrongCount }
-      const updates = { [`teamProgress/${myTeamId}/wrongGuesses`]: increment(1) }
+      const updates = { [`${memberPath}/wrongGuesses`]: increment(1) }
       if (newWrongCount >= MAX_WRONG) {
-        myUpdated.done = true
-        myUpdated.failed = true
-        updates[`teamProgress/${myTeamId}/done`] = true
-        updates[`teamProgress/${myTeamId}/failed`] = true
-        const { allDone, anyWon } = checkRoundEnd(myUpdated)
-        if (allDone) {
-          updates.phase = 'roundreveal'
-          updates.roundWon = anyWon
-          advancedRef.current = true
+        updates[`${memberPath}/done`] = true
+        updates[`${memberPath}/failed`] = true
+        const teamNowDone = checkTeamDone({ done: true })
+        if (teamNowDone) {
+          updates[`teamProgress/${myTeamId}/done`] = true
+          const { allDone, anyWon } = checkRoundEnd(true)
+          if (allDone && !advancedRef.current) {
+            advancedRef.current = true
+            updates.phase = 'roundreveal'
+            updates.roundWon = anyWon
+          }
         }
       }
       await update(ref(db, `rooms/${roomCode}`), updates)
@@ -286,7 +308,9 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     if (advancedRef.current) return
     advancedRef.current = true
     const guessingTeamIds = Object.keys(teams).filter(tid => tid !== drawingTeamId)
-    const anyWon = guessingTeamIds.some(tid => teamProgress[tid]?.done && !teamProgress[tid]?.failed)
+    const anyWon = guessingTeamIds.some(tid =>
+      (teams[tid]?.memberIds || []).some(pid => teamProgress[tid]?.members?.[pid]?.done && !teamProgress[tid]?.members?.[pid]?.failed)
+    )
     await update(ref(db, `rooms/${roomCode}`), {
       phase: 'roundreveal',
       roundWon: anyWon,
@@ -313,52 +337,56 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
     setShowHostPanel(false)
   }
 
-  // targetId is myTeamId for 'reveal', or a playerId for 'sabotage'
+  // targetId is null for 'hint', or a playerId for 'sabotage'
   const handlePlayCard = async (cardId, targetId) => {
     const card = POWER_CARDS.find((c) => c.id === cardId)
     if (!card || usedCard || myTeamScore < card.cost) return
     const updates = {}
 
-    if (cardId === 'reveal') {
-      const wordLetters = [...new Set((wordEntry?.word || '').toUpperCase().split('').filter((c) => c !== ' '))]
-      const unguessed = wordLetters.filter((l) => !guessedLetters[l])
-      if (unguessed.length === 0) return
-      const letter = unguessed[Math.floor(Math.random() * unguessed.length)]
-      updates[`teamProgress/${myTeamId}/guessedLetters/${letter}`] = true
-      const newGuessed = { ...guessedLetters, [letter]: true }
-      if (wordLetters.every((l) => newGuessed[l])) {
-        updates[`teamProgress/${myTeamId}/done`] = true
-        updates[`teamProgress/${myTeamId}/doneAt`] = Date.now()
-        const guessingIds = Object.keys(teams).filter((tid) => tid !== drawingTeamId)
-        const merged = { ...teamProgress, [myTeamId]: { ...myProgress, done: true } }
-        if (guessingIds.every((tid) => merged[tid]?.done) && !advancedRef.current) {
-          advancedRef.current = true
-          updates.phase = 'roundreveal'
-          updates.roundWon = guessingIds.some((tid) => merged[tid]?.done && !merged[tid]?.failed)
-        }
-      }
-      showCardToast(`🔤 Revealed "${letter}" for your team!`, myTeam?.color)
+    if (cardId === 'hint') {
+      setHintRevealed(true)
+      showCardToast(`💡 ${wordEntry?.hint || 'No hint available'}`, myTeam?.color)
 
     } else if (cardId === 'sabotage') {
-      // targetId is a playerId — resolve their team
       const targetTeamId = Object.entries(teams).find(([, t]) => t.memberIds?.includes(targetId))?.[0]
       if (!targetTeamId) return
-      const targetProg = teamProgress[targetTeamId] || {}
+      const targetMemberPath = `teamProgress/${targetTeamId}/members/${targetId}`
+      const targetProg = teamProgress[targetTeamId]?.members?.[targetId] || {}
       const targetPlayer = players[targetId]
       const newWrong = (targetProg.wrongGuesses || 0) + 1
-      updates[`teamProgress/${targetTeamId}/wrongGuesses`] = increment(1)
+      updates[`${targetMemberPath}/wrongGuesses`] = increment(1)
+      updates[`${targetMemberPath}/lastCardAgainst`] = { cardId: 'sabotage', byTeamName: myTeam?.name, at: Date.now() }
       if (newWrong >= MAX_WRONG) {
-        updates[`teamProgress/${targetTeamId}/done`] = true
-        updates[`teamProgress/${targetTeamId}/failed`] = true
-        const guessingIds = Object.keys(teams).filter((tid) => tid !== drawingTeamId)
-        const merged = { ...teamProgress, [targetTeamId]: { ...targetProg, done: true, failed: true } }
-        if (guessingIds.every((tid) => merged[tid]?.done) && !advancedRef.current) {
-          advancedRef.current = true
-          updates.phase = 'roundreveal'
-          updates.roundWon = guessingIds.some((tid) => merged[tid]?.done && !merged[tid]?.failed)
+        updates[`${targetMemberPath}/done`] = true
+        updates[`${targetMemberPath}/failed`] = true
+        // Check if this eliminates the whole target team
+        const targetMembers = teams[targetTeamId]?.memberIds || []
+        const allTargetDone = targetMembers.every((pid) => {
+          if (pid === targetId) return true
+          return !!(teamProgress[targetTeamId]?.members?.[pid]?.done)
+        })
+        if (allTargetDone) {
+          updates[`teamProgress/${targetTeamId}/done`] = true
+          const guessingIds = Object.keys(teams).filter((tid) => tid !== drawingTeamId)
+          const allTeamsDone = guessingIds.every((tid) =>
+            tid === targetTeamId ? true : !!(teamProgress[tid]?.done)
+          )
+          if (allTeamsDone && !advancedRef.current) {
+            advancedRef.current = true
+            const anyWon = guessingIds.some((tid) => {
+              const members = teams[tid]?.memberIds || []
+              const prog = teamProgress[tid] || {}
+              return members.some((pid) => {
+                const done = tid === targetTeamId && pid === targetId ? true : prog.members?.[pid]?.done
+                const failed = tid === targetTeamId && pid === targetId ? true : prog.members?.[pid]?.failed
+                return done && !failed
+              })
+            })
+            updates.phase = 'roundreveal'
+            updates.roundWon = anyWon
+          }
         }
       }
-      updates[`teamProgress/${targetTeamId}/lastCardAgainst`] = { cardId: 'sabotage', byTeamName: myTeam?.name, at: Date.now() }
       showCardToast(`💣 Sabotaged ${targetPlayer?.name || 'them'}!`, myTeam?.color)
     }
 
@@ -377,15 +405,17 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
   const myTeamAnswerer = myTeamAnswererId ? players[myTeamAnswererId] : null
 
   // Power card roles
-  const isGuessingSpectator = !isHost && !isOnDrawingTeam && !!myTeamId && !myTeamDone
-  const isDrawingSpectator  = !isHost && isOnDrawingTeam && !isDrawer && !!myTeamId
+  const isGuessingMember  = !isHost && !isOnDrawingTeam && !!myTeamId && !myPersonalDone
+  const isDrawingSpectator = !isHost && isOnDrawingTeam && !isDrawer && !!myTeamId
   const usedCard = !!(gameState?.spectatorCardUsed?.[playerId])
   const myTeamScore = myTeam?.score || 0
-
-  // Guessing spectators get all 3; drawing spectators can only sabotage (no Reveal)
+  // Guessers: Hint + Sabotage. Drawing spectators: Sabotage only. Drawer: none.
   const availableCards = isDrawingSpectator
     ? POWER_CARDS.filter((c) => c.id === 'sabotage')
-    : POWER_CARDS.filter((c) => c.id === 'reveal')
+    : isGuessingMember
+      ? POWER_CARDS
+      : []
+
 
   return (
     <div className="flex flex-col" style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '1200px', height: '100dvh', overflow: 'hidden' }}>
@@ -662,51 +692,43 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <div className="space-y-2">
                 {teamIds.map((tid) => {
                   const team = teams[tid]
-                  const prog = teamProgress[tid] || {}
-                  const gl = prog.guessedLetters || {}
-                  const wl = prog.wrongLetters || {}
-                  const wrongN = prog.wrongGuesses || Object.keys(wl).length
-                  const answererUid = answerers[tid]
-                  const answererName = players[answererUid]?.name || '?'
+                  const teamProg = teamProgress[tid] || {}
                   const isDrawing = tid === drawingTeamId
+                  const doneCount = (team.memberIds || []).filter(pid => teamProg.members?.[pid]?.done).length
+                  const total = (team.memberIds || []).length
                   return (
                     <div key={tid} className="rounded-xl px-3 py-2"
                       style={{ background: `rgba(${hexToRgb(team.color)}, 0.08)`, border: `1px solid rgba(${hexToRgb(team.color)}, 0.2)` }}>
-                      <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-1.5">
                           {getTeamImage(team.name)
-                            ? <img src={getTeamImage(team.name)} alt="" className="w-5 h-5 object-contain flex-shrink-0" />
+                            ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
                             : <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: team.color }} />
                           }
                           <span className="text-white/60 text-xs font-semibold">{team.name}</span>
                           {isDrawing && <span className="text-[9px]" style={{ color: team.color }}>✏ Drawing</span>}
                         </div>
-                        {isDrawing ? (
-                          <span className="text-white/25 text-[10px]">{players[drawerId]?.name}</span>
-                        ) : prog.done ? (
-                          prog.failed
-                            ? <span className="text-red-400 text-[10px] font-bold">Out</span>
-                            : <span className="text-[10px] font-bold" style={{ color: team.color }}>Got it!</span>
-                        ) : (
-                          <span className="text-[10px] font-bold tabular-nums"
-                            style={{ color: wrongN === 0 ? 'rgba(255,255,255,0.3)' : wrongN === 1 ? '#f59e0b' : '#ef4444' }}>
-                            {250 - wrongN * 50} pts
-                          </span>
+                        {!isDrawing && (
+                          <span className="text-[10px] tabular-nums" style={{ color: team.color }}>{doneCount}/{total} done</span>
                         )}
                       </div>
-                      {!isDrawing && (
-                        <div className="flex gap-0.5 flex-wrap">
-                          {(wordEntry?.word || '').toUpperCase().split('').map((char, i) =>
-                            char === ' ' ? <div key={i} className="w-2" /> : (
-                              <div key={i}
-                                className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-black"
-                                style={{ background: gl[char] ? `rgba(${hexToRgb(team.color)}, 0.3)` : 'rgba(255,255,255,0.05)', color: gl[char] ? team.color : 'rgba(255,255,255,0.15)' }}>
-                                {char}
-                              </div>
-                            )
-                          )}
-                        </div>
-                      )}
+                      {/* Per-member progress rows */}
+                      {!isDrawing && (team.memberIds || []).map((pid) => {
+                        const mp = teamProg.members?.[pid] || {}
+                        const wn = mp.wrongGuesses || 0
+                        return (
+                          <div key={pid} className="flex items-center gap-1.5 mt-1">
+                            <span className="text-white/40 text-[9px] w-16 truncate">{players[pid]?.name}</span>
+                            {mp.done ? (
+                              mp.failed
+                                ? <span className="text-red-400 text-[9px] font-bold">Out</span>
+                                : <span className="text-[9px] font-bold" style={{ color: team.color }}>✓ {mp.score || 0}pts</span>
+                            ) : (
+                              <span className="text-white/25 text-[9px]">{wn > 0 ? `${wn} wrong` : 'guessing…'}</span>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}
@@ -718,14 +740,23 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
             >
               {/* Role action banner */}
-              {!myTeamDone && (
+              {!myPersonalDone && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
                   style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.12)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
                   <span className="text-base">🔍</span>
                   <div className="min-w-0">
-                    <p className="font-black text-xs" style={{ color: myTeam?.color }}>Everyone guess together!</p>
+                    <p className="font-black text-xs" style={{ color: myTeam?.color }}>Guess on your own!</p>
                     <p className="text-white/40 text-[10px] leading-tight">Tap letters or type the full word</p>
                   </div>
+                </div>
+              )}
+
+              {/* Hint reveal banner */}
+              {hintRevealed && wordEntry && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                  style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                  <span className="text-base">💡</span>
+                  <p className="text-amber-400 font-bold text-xs leading-tight">{wordEntry.hint}</p>
                 </div>
               )}
 
@@ -733,7 +764,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full" style={{ background: myTeam?.color }} />
                 <span className="text-white/40 text-xs font-semibold">{myTeam?.name}</span>
-                {myTeamDone ? (
+                {myPersonalDone ? (
                   myProgress.failed ? (
                     <span className="ml-auto text-[10px] text-red-400 font-bold">Out of guesses</span>
                   ) : (
@@ -747,7 +778,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 )}
               </div>
 
-              {/* Word board */}
+              {/* Individual word board */}
               <LetterBoard
                 word={wordEntry?.word || ''}
                 guessedLetters={guessedLetters}
@@ -755,77 +786,55 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 wrongCount={wrongCount}
               />
 
-              {/* Guessing controls — open to all team members */}
-              {!isOnDrawingTeam && !myTeamDone && (
+              {/* Guessing controls */}
+              {!myPersonalDone && (
                 <>
-                  {/* Lock banner */}
-                  {isLocked && (
-                    <div className="flex items-center justify-center gap-2 rounded-xl py-2 animate-pulse"
-                      style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
-                      <span className="text-base">🔒</span>
-                      <span className="text-red-400 font-black text-xs tracking-wide">Input locked!</span>
-                    </div>
-                  )}
-
-                  {/* Letter keyboard */}
                   <Keyboard
                     guessedLetters={guessedLetters}
                     wrongLetters={wrongLetters}
                     onGuess={handleLetterGuess}
-                    disabled={isLocked}
                   />
-
-                  {/* Full word guess */}
                   <form onSubmit={handleFullGuessSubmit} className="flex gap-1.5">
                     <input
                       value={fullGuess}
                       onChange={(e) => setFullGuess(e.target.value.toUpperCase())}
-                      placeholder={isLocked ? 'Locked…' : 'Or type the full word...'}
+                      placeholder="Or type the full word..."
                       maxLength={40}
-                      disabled={isLocked}
                       className={`flex-1 rounded-xl px-3 py-2 text-xs font-bold tracking-widest outline-none transition-all ${guessShake ? 'animate-shake' : ''}`}
                       style={{
                         background: 'rgba(255,255,255,0.08)',
                         border: guessShake ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(255,255,255,0.1)',
-                        color: 'white',
-                        caretColor: 'white',
-                        WebkitTextFillColor: 'white',
-                        opacity: isLocked ? 0.4 : 1,
+                        color: 'white', caretColor: 'white', WebkitTextFillColor: 'white',
                       }}
                     />
-                    <button
-                      type="submit"
-                      disabled={!fullGuess.trim() || isLocked}
+                    <button type="submit" disabled={!fullGuess.trim()}
                       className="px-3 rounded-xl text-xs font-bold transition-all disabled:opacity-30"
-                      style={{ background: myTeam?.color || '#00B14F', color: 'black' }}
-                    >Go</button>
+                      style={{ background: myTeam?.color || '#00B14F', color: 'black' }}>Go</button>
                   </form>
                 </>
               )}
 
-              {/* Spectator power cards */}
-              {isGuessingSpectator && (
+              {/* Power cards — Hint + Sabotage for guessing members */}
+              {isGuessingMember && availableCards.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-white/20 text-[10px] uppercase tracking-widest font-semibold">Power Cards</p>
-
-                  {/* Card tray — Reveal fires directly, no target needed */}
                   <div className="flex gap-1.5">
                     {availableCards.map((card) => {
                       const canAfford = myTeamScore >= card.cost
-                      const disabled = usedCard || !canAfford
+                      const disabled = usedCard || !canAfford || (card.id === 'hint' && hintRevealed)
                       const teamColor = myTeam?.color || '#00B14F'
+                      const isSelected = cardPickTarget === card.id
                       return (
-                        <button
-                          key={card.id}
-                          disabled={disabled}
-                          title={card.desc}
-                          onClick={() => handlePlayCard(card.id, myTeamId)}
+                        <button key={card.id} disabled={disabled} title={card.desc}
+                          onClick={() => {
+                            if (card.id === 'hint') handlePlayCard('hint', null)
+                            else setCardPickTarget(isSelected ? null : card.id)
+                          }}
                           className="flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all active:scale-95 disabled:opacity-30"
                           style={{
-                            background: disabled ? 'rgba(255,255,255,0.03)' : `rgba(${hexToRgb(teamColor)}, 0.1)`,
-                            border: `1px solid ${disabled ? 'rgba(255,255,255,0.06)' : `rgba(${hexToRgb(teamColor)}, 0.25)`}`,
-                          }}
-                        >
+                            background: isSelected ? `rgba(${hexToRgb(teamColor)}, 0.2)` : disabled ? 'rgba(255,255,255,0.03)' : `rgba(${hexToRgb(teamColor)}, 0.1)`,
+                            border: `1px solid ${isSelected ? `rgba(${hexToRgb(teamColor)}, 0.5)` : disabled ? 'rgba(255,255,255,0.06)' : `rgba(${hexToRgb(teamColor)}, 0.25)`}`,
+                          }}>
                           <span className="text-xl leading-none">{card.emoji}</span>
                           <span className="text-white/70 text-[9px] font-bold leading-none mt-0.5">{card.name}</span>
                           <span className="text-[9px] font-black leading-none" style={{ color: teamColor }}>{card.cost} pts</span>
@@ -833,11 +842,35 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                       )
                     })}
                   </div>
-
-                  {usedCard && (
-                    <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>
+                  {usedCard && <p className="text-white/20 text-[10px] text-center">Card used this round ✓</p>}
+                  {/* Sabotage: pick a player on any other guessing team */}
+                  {cardPickTarget === 'sabotage' && (
+                    <div className="rounded-xl overflow-hidden animate-slide-up"
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick a player to sabotage</p>
+                      {Object.entries(teams)
+                        .filter(([tid]) => tid !== drawingTeamId && tid !== myTeamId)
+                        .flatMap(([tid, team]) => (team.memberIds || []).map((pid) => ({ pid, team, tid })))
+                        .filter(({ pid }) => !teamProgress[Object.entries(teams).find(([,t])=>t.memberIds?.includes(pid))?.[0]]?.members?.[pid]?.done)
+                        .map(({ pid, team }) => {
+                          const p = players[pid]
+                          if (!p) return null
+                          return (
+                            <button key={pid} onClick={() => handlePlayCard('sabotage', pid)}
+                              className="w-full flex items-center gap-2 px-3 py-2 transition-all hover:bg-white/5 active:scale-95 text-left">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0"
+                                style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}>
+                                {p.name?.[0]?.toUpperCase()}
+                              </div>
+                              <span className="text-white/70 text-xs font-semibold">{p.name}</span>
+                              <span className="text-white/25 text-[10px] ml-1">{team.name}</span>
+                            </button>
+                          )
+                        })}
+                      <button onClick={() => setCardPickTarget(null)}
+                        className="w-full px-3 py-1.5 text-white/25 text-[10px] hover:bg-white/5 text-center transition-all">Cancel</button>
+                    </div>
                   )}
-
                   <p className="text-white/20 text-[10px] text-center">Chat with your team below</p>
                 </div>
               )}
@@ -852,44 +885,38 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               <div className="space-y-2">
                 {teamIds.filter((tid) => tid !== drawingTeamId).map((tid) => {
                   const team = teams[tid]
-                  const prog = teamProgress[tid] || {}
-                  const gl = prog.guessedLetters || {}
-                  const wl = prog.wrongLetters || {}
-                  const wrongN = prog.wrongGuesses || Object.keys(wl).length
+                  const teamProg = teamProgress[tid] || {}
+                  const doneCount = (team.memberIds || []).filter(pid => teamProg.members?.[pid]?.done).length
+                  const total = (team.memberIds || []).length
                   return (
                     <div key={tid} className="rounded-xl px-3 py-2"
                       style={{ background: `rgba(${hexToRgb(team.color)}, 0.08)`, border: `1px solid rgba(${hexToRgb(team.color)}, 0.2)` }}>
-                      <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
                           {getTeamImage(team.name)
-                            ? <img src={getTeamImage(team.name)} alt="" className="w-5 h-5 object-contain flex-shrink-0" />
+                            ? <img src={getTeamImage(team.name)} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
                             : <div className="w-2 h-2 rounded-full" style={{ background: team.color }} />
                           }
                           <span className="text-white/60 text-xs font-semibold">{team.name}</span>
                         </div>
-                        {prog.done ? (
-                          prog.failed
-                            ? <span className="text-red-400 text-[10px] font-bold">Out</span>
-                            : <span className="text-[10px] font-bold" style={{ color: team.color }}>Got it!</span>
-                        ) : (
-                          <span className="text-[10px] font-bold tabular-nums"
-                            style={{ color: wrongN === 0 ? 'rgba(255,255,255,0.3)' : wrongN === 1 ? '#f59e0b' : '#ef4444' }}>
-                            {250 - wrongN * 50} pts
-                          </span>
-                        )}
+                        <span className="text-[10px] tabular-nums" style={{ color: team.color }}>{doneCount}/{total}</span>
                       </div>
-                      {/* Mini word progress */}
-                      <div className="flex gap-0.5 flex-wrap">
-                        {(wordEntry?.word || '').toUpperCase().split('').map((char, i) =>
-                          char === ' ' ? <div key={i} className="w-2" /> : (
-                            <div key={i}
-                              className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-black"
-                              style={{ background: gl[char] ? `rgba(${hexToRgb(team.color)}, 0.25)` : 'rgba(255,255,255,0.05)', color: gl[char] ? team.color : 'transparent' }}>
-                              {char}
-                            </div>
-                          )
-                        )}
-                      </div>
+                      {(team.memberIds || []).map((pid) => {
+                        const mp = teamProg.members?.[pid] || {}
+                        const wn = mp.wrongGuesses || 0
+                        return (
+                          <div key={pid} className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-white/35 text-[9px] w-14 truncate">{players[pid]?.name}</span>
+                            {mp.done ? (
+                              mp.failed
+                                ? <span className="text-red-400 text-[9px]">Out</span>
+                                : <span className="text-[9px] font-bold" style={{ color: team.color }}>✓ {mp.score || 0}pts</span>
+                            ) : (
+                              <span className="text-white/20 text-[9px]">{wn > 0 ? `${wn} wrong` : '…'}</span>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}
@@ -948,9 +975,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                       <p className="text-white/30 text-[10px] px-3 pt-2 pb-1 uppercase tracking-widest font-semibold">Pick a player to sabotage</p>
                       {Object.entries(teams)
                         .filter(([tid]) => tid !== drawingTeamId)
-                        .flatMap(([tid, team]) =>
-                          (team.memberIds || []).map((pid) => ({ pid, team }))
-                        )
+                        .flatMap(([tid, team]) => (team.memberIds || []).map((pid) => ({ pid, team, tid })))
+                        .filter(({ pid, tid }) => !teamProgress[tid]?.members?.[pid]?.done)
                         .map(({ pid, team }) => {
                           const p = players[pid]
                           if (!p) return null
@@ -961,10 +987,8 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                                 style={{ background: `rgba(${hexToRgb(team.color)}, 0.2)`, color: team.color }}>
                                 {p.name?.[0]?.toUpperCase()}
                               </div>
-                              <div className="min-w-0">
-                                <span className="text-white/70 text-xs font-semibold">{p.name}</span>
-                                <span className="text-white/25 text-[10px] ml-1.5">{team.name}</span>
-                              </div>
+                              <span className="text-white/70 text-xs font-semibold">{p.name}</span>
+                              <span className="text-white/25 text-[10px] ml-1.5">{team.name}</span>
                             </button>
                           )
                         })}
@@ -1180,13 +1204,13 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                 </div>
                 <p className="text-white/20 text-xs">First team to guess wins the most points</p>
               </>
-            ) : isOnDrawingTeam ? (
+            ) : (
               <>
                 <div className="text-5xl mb-2">👀</div>
                 <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">You're on the drawing team</p>
                 <p className="text-white font-black text-2xl leading-tight">Cheer your drawer on!</p>
                 <div className="px-4 py-3 rounded-xl mt-2" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <p className="text-white/50 text-sm">Use <span className="font-bold text-white">💣 Hex</span> or <span className="font-bold text-white">🔒 Lock</span> to sabotage guessing teams</p>
+                  <p className="text-white/50 text-sm">Use <span className="font-bold text-white">💣 Sabotage</span> to slow down guessing teams</p>
                 </div>
                 <p className="text-white/20 text-xs">Spend your team points strategically</p>
               </>

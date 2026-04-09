@@ -7,8 +7,8 @@ import PlayerAvatar from '../components/PlayerAvatar'
 const HOW_TO = [
   { step: '01', text: 'Teams are randomly assigned — 3 to 4 players each' },
   { step: '02', text: 'One team draws each round while the others race to guess' },
-  { step: '03', text: 'Your team\'s answerer rotates every round — discuss in team chat' },
-  { step: '04', text: 'Guess by letter (hangman) or type the full word — your call' },
+  { step: '03', text: 'Everyone on your team can guess at the same time — collaborate!' },
+  { step: '04', text: 'Guess by letter or type the full word — first team to get it wins' },
 ]
 
 const TIMER_OPTIONS = [120, 180, 240]

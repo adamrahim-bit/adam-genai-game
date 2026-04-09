@@ -65,43 +65,17 @@ export default function Home({ playerId, enterRoom }) {
 
         {/* Brand mark */}
         <div className="text-center mb-10">
-          {/* Icon */}
-          <div className="inline-flex items-center justify-center mb-5">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center relative overflow-hidden animate-bounce-in"
-              style={{ background: 'linear-gradient(135deg, #00B14F 0%, #007A36 100%)', boxShadow: '0 0 40px rgba(0,177,79,0.4), 0 8px 32px rgba(0,0,0,0.4)' }}
-            >
-              {/* Paintbrush SVG */}
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
-                <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
-                <path d="M14.5 17.5 4.5 15"/>
-              </svg>
-              {/* Shine overlay */}
-              <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-2xl" />
-            </div>
-          </div>
-
-          <h1 className="text-4xl font-black tracking-tight text-white mb-2">
-            Grab{' '}
-            <span
-              className="relative"
-              style={{ background: 'linear-gradient(90deg, #00B14F, #00D460)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-            >
-              &amp; Guess
-            </span>
-          </h1>
-          <p className="text-sm font-black tracking-widest uppercase mt-1"
+          <h1 className="text-4xl font-black tracking-tight uppercase"
             style={{
               background: 'linear-gradient(90deg, #00B14F 0%, #00D460 40%, #f59e0b 70%, #00B14F 100%)',
               backgroundSize: '200% auto',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               animation: 'shimmer 3s linear infinite',
-              letterSpacing: '0.2em',
+              letterSpacing: '0.1em',
             }}>
-            🎨 Guess What It Is ❓
-          </p>
+            Guess What It Is ?
+          </h1>
         </div>
 
         {/* Name */}

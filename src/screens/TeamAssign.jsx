@@ -119,7 +119,7 @@ export default function TeamAssign({ playerId, roomCode, gameState, isHost, myTe
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
           Each round, one team draws while the others race to guess.
-          Your team's <span className="text-white/70 font-semibold">answerer rotates</span> each round.
+          <span className="text-white/70 font-semibold"> Everyone on your team can guess</span> — collaborate to get it first.
           First team to guess correctly wins the round.
         </div>
 
