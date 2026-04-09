@@ -533,6 +533,15 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
             </div>
           )}
 
+          {/* Drawer action prompt */}
+          {isDrawer && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-shrink-0"
+              style={{ background: 'rgba(0,177,79,0.08)', border: '1px solid rgba(0,177,79,0.2)' }}>
+              <span className="text-sm">🎨</span>
+              <p className="text-white/50 text-xs font-semibold">Draw the word — don't write or say it!</p>
+            </div>
+          )}
+
           {/* Canvas */}
           <div
             className="flex-1 min-h-[120px] rounded-2xl overflow-hidden"
@@ -682,6 +691,29 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
               className="flex-shrink-0 p-2 lg:p-3 space-y-1.5 lg:space-y-2"
               style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
             >
+              {/* Role action banner */}
+              {!myTeamDone && (
+                isAnswerer ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                    style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.12)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.3)` }}>
+                    <span className="text-base">🔍</span>
+                    <div className="min-w-0">
+                      <p className="font-black text-xs" style={{ color: myTeam?.color }}>Your turn to guess!</p>
+                      <p className="text-white/40 text-[10px] leading-tight">Tap letters or type the full word below</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <span className="text-base">⚡</span>
+                    <div className="min-w-0">
+                      <p className="text-white/70 font-black text-xs">{myTeamAnswerer?.name} is answering</p>
+                      <p className="text-white/30 text-[10px] leading-tight">Chat to help · Use power cards below</p>
+                    </div>
+                  </div>
+                )
+              )}
+
               {/* My team's role badge */}
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full" style={{ background: myTeam?.color }} />
@@ -699,7 +731,7 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   </span>
                 ) : (
                   <span className="ml-auto text-white/25 text-[10px]">
-                    {myTeamAnswerer?.name} is answering
+                    Spectator
                   </span>
                 )}
               </div>
@@ -887,6 +919,18 @@ export default function Drawing({ playerId, playerName, roomCode, gameState, isH
                   )
                 })}
               </div>
+
+              {/* Drawing spectator action banner */}
+              {isDrawingSpectator && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl mt-1"
+                  style={{ background: `rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.08)`, border: `1px solid rgba(${hexToRgb(myTeam?.color || '#00B14F')}, 0.2)` }}>
+                  <span className="text-base">💣</span>
+                  <div>
+                    <p className="font-black text-xs" style={{ color: myTeam?.color }}>Sabotage the guessing teams!</p>
+                    <p className="text-white/30 text-[10px]">Spend your team's points to slow them down</p>
+                  </div>
+                </div>
+              )}
 
               {/* Drawing-team spectator power cards (Hex + Lock only) */}
               {isDrawingSpectator && (
