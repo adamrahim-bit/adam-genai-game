@@ -13,12 +13,24 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
   const players = gameState?.players || {}
 
   const sortedTeams = Object.entries(teams)
-    .map(([tid, t]) => ({ tid, ...t }))
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .map(([tid, t]) => ({
+      tid, ...t,
+      memberCount: (t.memberIds || []).length || 1,
+      avgScore: Math.round((t.score || 0) / ((t.memberIds || []).length || 1)),
+    }))
+    .sort((a, b) => b.avgScore - a.avgScore || (b.score || 0) - (a.score || 0))
 
-  const winnerTeam = sortedTeams[0]
+  // Assign ranks accounting for ties (same avgScore = same rank)
+  const rankedTeams = sortedTeams.map((team, i) => {
+    const rank = i === 0 ? 0 : sortedTeams.findIndex(t => t.avgScore === team.avgScore)
+    return { ...team, rank }
+  })
+
+  const topAvg = rankedTeams[0]?.avgScore
+  const winners = rankedTeams.filter(t => t.avgScore === topAvg)
+  const isMultiWinner = winners.length > 1
   const myTeam = teams[myTeamId]
-  const iAmOnWinningTeam = myTeamId === winnerTeam?.tid
+  const iAmOnWinningTeam = winners.some(w => w.tid === myTeamId)
 
   useEffect(() => {
     import('canvas-confetti').then((mod) => {
@@ -86,7 +98,7 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
     })
   }
 
-  const top3 = sortedTeams.slice(0, 3)
+  const top3 = rankedTeams.slice(0, 3)
   const podiumOrder = top3.length >= 3
     ? [top3[1], top3[0], top3[2]]
     : top3.length === 2 ? [top3[1], top3[0]] : [top3[0]]
@@ -99,10 +111,14 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
         <div className="text-center mb-8">
           <p className="text-white/30 text-xs uppercase tracking-widest font-semibold mb-2">Game Over</p>
           <h1 className="text-3xl font-black text-white mb-1 tracking-tight">
-            {iAmOnWinningTeam ? 'Your team won!' : `${winnerTeam?.name} wins!`}
+            {isMultiWinner
+              ? iAmOnWinningTeam ? "It's a tie — you're joint winners! 🤝" : "It's a tie! 🤝"
+              : iAmOnWinningTeam ? 'Your team won!' : `${rankedTeams[0]?.name} wins!`}
           </h1>
           <p className="text-white/40 text-sm">
-            {winnerTeam?.score || 0} points
+            {isMultiWinner
+              ? `${winners.map(w => w.name.replace('Team ', '')).join(' & ')} · ${topAvg} pts/player each`
+              : `${topAvg} pts/player · ${rankedTeams[0]?.score || 0} total`}
           </p>
         </div>
 
@@ -110,7 +126,7 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
         {sortedTeams.length >= 2 && (
           <div className="flex items-end justify-center gap-3 mb-8">
             {podiumOrder.map((team) => {
-              const rank = sortedTeams.findIndex((t) => t.tid === team.tid)
+              const rank = team.rank
               const isCenter = rank === 0
               const teamMembers = (team.memberIds || []).map((uid) => players[uid]).filter(Boolean)
               return (
@@ -135,11 +151,11 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
                     ))}
                   </div>
 
-                  <p className="text-white/50 font-black text-sm tabular-nums mt-1">{team.score || 0}</p>
+                  <p className="text-white/50 font-black text-sm tabular-nums mt-1">{Math.round(team.avgScore || 0)}<span className="text-white/25 text-[9px] font-normal">/player</span></p>
 
                   {/* Podium block */}
                   <div
-                    className={`w-full rounded-t-xl ${PODIUM_HEIGHTS[rank]}`}
+                    className={`w-full rounded-t-xl ${PODIUM_HEIGHTS[Math.min(rank, PODIUM_HEIGHTS.length - 1)]}`}
                     style={{
                       background: `linear-gradient(to top, rgba(${hexToRgb(team.color)}, 0.6), rgba(${hexToRgb(team.color)}, 0.35))`,
                       opacity: 0.9,
@@ -155,7 +171,7 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
         <div className="card mb-5">
           <p className="text-white/30 text-xs uppercase tracking-widest font-semibold mb-3">Full Results</p>
           <div className="space-y-3">
-            {sortedTeams.map((team, i) => {
+            {rankedTeams.map((team, i) => {
               const isMine = team.tid === myTeamId
               const teamMembers = (team.memberIds || []).map((uid) => players[uid]).filter(Boolean)
               return (
@@ -168,13 +184,17 @@ export default function Podium({ playerId, roomCode, gameState, isHost, myTeamId
                       border: isMine ? `1px solid rgba(${hexToRgb(team.color)}, 0.25)` : '1px solid transparent',
                     }}
                   >
-                    <span className="text-white/20 text-xs w-4 font-bold">{i + 1}</span>
+                    <span className="text-white/20 text-xs w-4 font-bold">{MEDALS[team.rank] || (team.rank + 1)}</span>
                     {getTeamImage(team.name)
                       ? <img src={getTeamImage(team.name)} alt="" className="w-6 h-6 object-contain flex-shrink-0" />
                       : <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: team.color }} />
                     }
                     <span className="flex-1 text-white font-bold text-sm">{team.name}</span>
-                    <span className="text-white/70 font-black tabular-nums">{team.score || 0}</span>
+                    <div className="text-right">
+                      <span className="text-white font-black tabular-nums text-sm">{Math.round(team.avgScore || 0)}</span>
+                      <span className="text-white/30 text-[9px] ml-0.5">/player</span>
+                      <p className="text-white/30 text-[10px] tabular-nums">{team.score || 0} total</p>
+                    </div>
                   </div>
 
                   {/* Members */}
